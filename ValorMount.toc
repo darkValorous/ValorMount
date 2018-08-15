@@ -1,0 +1,8 @@
+## Interface: 80000
+## Title: ValorMount
+## Notes: A simple addon just for mounting up.
+## Author: darkValorous
+## Version: 1.0
+## SavedVariables: ValorMountGlob
+## SavedVariablesPerCharacter: ValorMountChar ValorMountFavs
+ValorMount.lua
