@@ -17,8 +17,8 @@ local tinsert, tremove, sort, wipe, pairs, random, select, format, unpack
 	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select, _G.format, _G.unpack
 local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText
 	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText
-local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, GetBindingKey
-	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.GetBindingKey
+local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, IsMounted, UnitAura, GetBindingKey
+	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.IsMounted, _G.UnitAura, _G.GetBindingKey
 local IsPlayerSpell, IsSubmerged, SecureCmdOptionParse, UnitAffectingCombat, SetOverrideBindingClick, ClearOverrideBindings
 	= _G.IsPlayerSpell, _G.IsSubmerged, _G.SecureCmdOptionParse, _G.UnitAffectingCombat, _G.SetOverrideBindingClick, _G.ClearOverrideBindings
 local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBestMapForUnit
@@ -30,56 +30,16 @@ local playerRace, playerClass, playerFaction, playerLevel
 local vmPrefs = CreateFrame("Frame", nil, _G.UIParent)
 local vmMain = CreateFrame("Button", "ValorMountButton", nil, "SecureActionButtonTemplate")
 local spellMap = {
-	GhostWolf = 2645,
-	ZenFlight = 125883,
-	FlightForm = 276029,
-	TravelForm = 783,
-	AquaticForm = 276012,
-	MoonkinForm = 24858,
-	RunningWild = 87840,
+	GhostWolf = { id = 2645 },
+	ZenFlight = { id = 125883 },
+	FlightForm = { id = 276029 },
+	TravelForm = { id = 783 },
+	AquaticForm = { id = 276012 },
+	MoonkinForm = { id = 24858 },
+	RunningWild = { id = 87840 },
+	TwoForms = { id = 68996 },
 }
-local vmInfo = {
-	Enabled = {
-		name = "ValorMount is Enabled",
-		desc = "If disabled the keybind maps to the |cFF69CCF0[Summon Random Favorite Mount]|r button.",
-	},
-	WorgenMount = {
-		name = "|cFFC79C6EWorgen:|r Running Wild as Favorite",
-		desc = "Adds |cFF69CCF0[Running Wild]|r as a favorite ground mount.",
-		race = "Worgen",
-	},
-	WorgenHuman = {
-		name = "|cFFC79C6EWorgen:|r Return to Human Form",
-		desc = "If in Worgen form, returns you to Human form when mounting.",
-		race = "Worgen",
-		addon = "ValorWorgen",
-	},
-	DruidMoonkin = {
-		name = "|cFFFF7D0ADruid:|r Return to Moonkin Form",
-		desc = "When shifting from |cFF69CCF0[Moonkin Form]|r to |cFF69CCF0[Travel Form]|r, this will return you to |cFF69CCF0[Moonkin Form]|r after.",
-		class = "DRUID",
-	},
-	DruidFormRandom = {
-		name = "|cFFFF7D0ADruid:|r Flight Form as Favorite",
-		desc = "Adds |cFF69CCF0[Travel Form]|r as a favorite flying mount.",
-		class = "DRUID",
-	},
-	DruidFormAlways = {
-		name = "|cFFFF7D0ADruid:|r Always Use Flight Form",
-		desc = "Ignore favorites whenever |cFF69CCF0[Flight Form]|r is available.",
-		class = "DRUID",
-	},
-	MonkZenFlight = {
-		name = "|cFF00FF96Monk:|r Allow Zen Flight",
-		desc = "Only used when moving or falling.",
-		class = "MONK",
-	},
-	ShamanGhostWolf = {
-		name = "|cFF0070DEShaman:|r Allow Ghost Wolf",
-		desc = "Only used when moving or in combat.",
-		class = "SHAMAN",
-	},
-}
+for k in pairs(spellMap) do spellMap[k].name = GetSpellInfo(spellMap[k].id) end
 
 -------------------------------------------------
 -- Option Defaults
@@ -427,11 +387,10 @@ do
 		-- Prepare
 		topPriority = 1
 		wipe(tempOne)
-		local zoneInfo = vmMain.zoneInfo
 		local mountDb = ValorMountLocal.mountDb
 
 		-- Vashj'ir Override - Always bet on the Seahorse
-		if vmVashjir(zoneInfo.mapId) and IsPlayerSpell(VASHJIR_SEAHORSE) then
+		if vmVashjir() and IsPlayerSpell(VASHJIR_SEAHORSE) then
 			return VASHJIR_SEAHORSE
 		end
 
@@ -445,19 +404,19 @@ do
 		end
 
 		-- Druid: Travel Form
-		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm) then
+		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm.id) then
 			-- No Riding Skill: Priority: (Travel > Heirloom) in Water, (Travel < Heirloom) on Land
 			if not canRide then
-				addToPool((IsSubmerged() and IsPlayerSpell(spellMap.AquaticForm)) and 15 or 5, spellMap.TravelForm)
+				addToPool((IsSubmerged() and IsPlayerSpell(spellMap.AquaticForm.id)) and 15 or 5, spellMap.TravelForm.id)
 			-- DruidFormRandom: Treat Flight Form as a Favorite
-			elseif canFly and IsPlayerSpell(spellMap.FlightForm) and ValorMountLocal.DruidFormRandom then
-				addToPool(FLYING, spellMap.TravelForm)
+			elseif canFly and IsPlayerSpell(spellMap.FlightForm.id) and ValorMountLocal.DruidFormRandom then
+				addToPool(FLYING, spellMap.TravelForm.id)
 			end
 		end
 
 		-- WorgenMount: Treat Running Wild as a Favorite
-		if playerRace == "Worgen" and ValorMountLocal.WorgenMount and IsPlayerSpell(spellMap.RunningWild) then
-			addToPool(GROUND, spellMap.RunningWild)
+		if playerRace == "Worgen" and ValorMountLocal.WorgenMount and IsPlayerSpell(spellMap.RunningWild.id) then
+			addToPool(GROUND, spellMap.RunningWild.id)
 		end
 
 		-- Favorites
@@ -498,10 +457,8 @@ local vmSetMacro
 do
 	local wasMoonkin = false
 	local macroFail = "/run C_MountJournal.SummonByID(0)\n"
-	local macroCond = "[nocombat,outdoors,nomounted,novehicleui]"
-	local macroText = "/leavevehicle [canexitvehicle]\n/dismount [mounted]\n"
-	local macroPre, macroPost, macroMount, mountCond, spellId
-	local canRide, canMount, inVashjir, canFly
+	local mountCond = "[outdoors,nocombat,nomounted,novehicleui]"
+	local mountDismount = "/leavevehicle [canexitvehicle]\n/dismount [mounted]\n"
 
 	local function vmMakeMacro()
 
@@ -512,76 +469,91 @@ do
 
 		-- Prepare
 		vmSetZoneInfo()
-		macroPre, macroPost, macroMount, spellId, mountCond = "", "", "", false, macroCond
-		canRide, inVashjir = vmCanRide(), vmVashjir()
-		canMount = SecureCmdOptionParse(macroCond) or false
-		canFly = canRide and vmCanFly() or false
+		local inTravelForm, spellId = false, false
+		local macroPre, macroPost, macroText = "", "", ""
+		local macroCond, macroExit = mountCond, mountDismount
+		local canRide, inVashjir = vmCanRide(), vmVashjir()
+		local canFly = canRide and vmCanFly() or false
+		local inCombat = UnitAffectingCombat("player")
+		local canMount = SecureCmdOptionParse(mountCond) or false
 
 		-- Druid & Travel Form
 		-- 5487 = Bear, 768 = Cat, 783 = Travel, 24858 = Moonkin, 114282 = Tree, 210053 = Stag
-		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm) and not inVashjir then
-			-- Shapeshift Info
+		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm.id) and not inVashjir then
 			for i = 1, GetNumShapeshiftForms() do
 				local _, fActive, _, fSpellId = GetShapeshiftFormInfo(i)
-				if fSpellId == spellMap.TravelForm and fActive then
-					macroPost = macroPost .. "\n/cancelform [form]"
+				-- Special Conditions for Travel Form
+				if fSpellId == spellMap.TravelForm.id and fActive then
+					canMount = false
+					inTravelForm = true
+					macroExit = "/cancelform [form]\n"
 					-- DruidMoonkinForm: Shift back into Moonkin from Travel Form
-					if wasMoonkin and ValorMountLocal.DruidMoonkin then
-						macroPost = macroPost .. "\n/cast [noform] " .. GetSpellInfo(spellMap.MoonkinForm)
+					if ValorMountLocal.DruidMoonkin and wasMoonkin then
+						macroPost = format("/cast [noform] %s\n", spellMap.MoonkinForm.name)
 					end
-				elseif fSpellId == spellMap.MoonkinForm then
+				-- In Moonkin
+				elseif fSpellId == spellMap.MoonkinForm.id then
 					wasMoonkin = fActive
 				end
 			end
-			-- DruidFormAlways: Ignore Favorites if Flight Form is possible
-			if ValorMountLocal.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm) then
-				mountCond = "[outdoors,nomounted,novehicleui]"
-				spellId = spellMap.TravelForm
-			-- In Combat, Falling, Moving
-			elseif not canMount or UnitAffectingCombat("player") or IsPlayerMoving() or IsFalling() then
-				mountCond = "[outdoors,nomounted,novehicleui]"
-				spellId = spellMap.TravelForm
+			-- Druid Travel Form: If in Combat, Moving, Falling or DruidFormAlways is enabled
+			if not inTravelForm and not IsMounted()
+			   and ((ValorMountLocal.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm.id))
+			   or (IsOutdoors() and (inCombat or IsPlayerMoving() or (canFly and IsFalling())))) then
+				macroCond = "[outdoors,nomounted,novehicleui]"
+				spellId = spellMap.TravelForm.id
 			end
 		end
 
 		-- ShamanGhostWolf
-		if playerClass == "SHAMAN" and ValorMountLocal.ShamanGhostWolf and IsPlayerSpell(spellMap.GhostWolf) and not inVashjir then
-			macroPost = macroPost .. "\n/cancelform [form]"
-			if not canMount or UnitAffectingCombat("player") or IsPlayerMoving() then
-				mountCond = "[nomounted,noform,novehicleui]"
-				spellId = spellMap.GhostWolf
+		if playerClass == "SHAMAN" and ValorMountLocal.ShamanGhostWolf and IsPlayerSpell(spellMap.GhostWolf.id) then
+			-- Cancel Ghost Wolf
+			for i = 1, 40 do
+				local _, _, _, _, _, _, _, _, _, auraId = UnitAura("player", i, "HELPFUL|PLAYER")
+				if not auraId then break
+				elseif auraId == spellMap.GhostWolf.id then
+					canMount = false
+					inTravelForm = true
+					macroExit = "/cancelform [form]\n"
+					break
+				end
+			end
+			-- Cast Ghost Wolf
+			if not IsSubmerged() and not IsMounted() and not inTravelForm and (not canMount or inCombat or IsPlayerMoving()) then
+				macroCond = "[nomounted,novehicleui]"
+				spellId = spellMap.GhostWolf.id
 			end
 		end
 
 		-- MonkZenFlight
-		if playerClass == "MONK" and ValorMountLocal.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight) and canFly and IsOutdoors() and not IsSubmerged() and not inVashjir then
+		if playerClass == "MONK" and ValorMountLocal.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight.id) and canFly and IsOutdoors() and not IsSubmerged() then
 			if not canMount or IsPlayerMoving() or IsFalling() then
-				mountCond = "[outdoors,nocombat,nomounted,noform,novehicleui]"
-				spellId = spellMap.ZenFlight
+				spellId = spellMap.ZenFlight.id
 			end
 		end
 
 		-- WorgenHuman: Worgen Two Forms before Mounting
-		if _G.ValorAddons.ValorWorgen and ValorMountLocal.WorgenHuman and playerRace == "Worgen" and spellId ~= spellMap.RunningWild and spellId ~= spellMap.TravelForm and _G.ValorWorgenForm then
-			macroPre = macroPre .. "/cast [nocombat,nomounted,novehicleui,noform] Two Forms\n"
+		if playerRace == "Worgen" and ValorMountLocal.WorgenHuman and _G.ValorAddons.ValorWorgen and _G.ValorWorgenForm
+		   and canMount and spellId ~= spellMap.RunningWild.id and spellId ~= spellMap.TravelForm.id then
+			macroPre = format("/cast [nocombat,nomounted,novehicleui,noform] %s\n", spellMap.TwoForms.name)
 		end
 
 		-- Select a Mount from Favorites
-		if not spellId and canMount and not IsPlayerMoving() and not IsFalling() and not UnitAffectingCombat("player") then
+		if not spellId and canMount and not IsPlayerMoving() and not IsFalling() and not inCombat and not inTravelForm then
 			spellId = vmGetMount(canRide, canFly)
 			-- Could not find a favorite
 			if not spellId then
-				macroMount = macroFail
+				macroText = macroFail
 			end
 		end
 
 		-- Prepare Macro
 		if spellId then
-			macroMount = "/use " .. mountCond .. " " .. GetSpellInfo(spellId) .. "\n"
+			macroText = format("/use %s %s%s\n", macroCond, GetSpellInfo(spellId), (spellId == spellMap.TravelForm.id and "(Shapeshift)" or ""))
 		end
 
 		-- Return Macro
-		return macroPre .. macroMount .. macroText .. macroPost
+		return macroPre .. macroText .. macroExit .. macroPost
 	end
 
 	function vmSetMacro(bFrame)
@@ -606,6 +578,48 @@ do
 	local dropChoices = {
 		mount = { "Flying Only", "Both", "Ground Only" },
 		zone  = { "Default", "Flying Area", "Ground Only" },
+	}
+	local vmInfo = {
+		Enabled = {
+			name = "ValorMount is Enabled",
+			desc = "If disabled the keybind maps to the |cFF69CCF0[Summon Random Favorite Mount]|r button.",
+		},
+		WorgenMount = {
+			name = "|cFFC79C6EWorgen:|r Running Wild as Favorite",
+			desc = "Adds |cFF69CCF0[Running Wild]|r as a favorite ground mount.",
+			race = "Worgen",
+		},
+		WorgenHuman = {
+			name = "|cFFC79C6EWorgen:|r Return to Human Form",
+			desc = "If in Worgen form, returns you to Human form when mounting.",
+			race = "Worgen",
+			addon = "ValorWorgen",
+		},
+		DruidMoonkin = {
+			name = "|cFFFF7D0ADruid:|r Return to Moonkin Form",
+			desc = "When shifting from |cFF69CCF0[Moonkin Form]|r to |cFF69CCF0[Travel Form]|r, this will return you to |cFF69CCF0[Moonkin Form]|r after.",
+			class = "DRUID",
+		},
+		DruidFormRandom = {
+			name = "|cFFFF7D0ADruid:|r Flight Form as Favorite",
+			desc = "Adds |cFF69CCF0[Travel Form]|r as a favorite flying mount.",
+			class = "DRUID",
+		},
+		DruidFormAlways = {
+			name = "|cFFFF7D0ADruid:|r Always Use Flight Form",
+			desc = "Ignore favorites whenever |cFF69CCF0[Flight Form]|r is available.",
+			class = "DRUID",
+		},
+		MonkZenFlight = {
+			name = "|cFF00FF96Monk:|r Allow Zen Flight",
+			desc = "Only used when moving or falling.",
+			class = "MONK",
+		},
+		ShamanGhostWolf = {
+			name = "|cFF0070DEShaman:|r Allow Ghost Wolf",
+			desc = "Only used when moving or in combat.",
+			class = "SHAMAN",
+		},
 	}
 
 	-- Checkbox Functions
@@ -920,7 +934,6 @@ vmMain:SetScript("OnEvent", function(self, event)
 		self:RegisterEvent("PLAYER_REGEN_DISABLED")
 		self:RegisterEvent("PLAYER_REGEN_ENABLED")
 		self:RegisterEvent("PLAYER_LEVEL_UP")
-		self:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
 		self:RegisterEvent("UPDATE_BINDINGS")
 		self:RegisterEvent("ZONE_CHANGED")
 		self:RegisterEvent("ZONE_CHANGED_INDOORS")
