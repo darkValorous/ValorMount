@@ -323,18 +323,24 @@ do
 					if newValue then
 						tremove(ValorMountGlobal.softOverrides, i)
 					end
-					vmMain.zoneInfo.zoneSoft = newValue or zoneData[4]
-					if vmPrefs.vmFrames then
-						vmPrefs.vmFrames.updateDropDown()
-					end
+					vmMain.zoneInfo.zoneSoft = newValue or 1
 				end
 			end
 		end
 
 		-- Done
 		vmMain.zoneChanged = false
-		if newValue and newValue > 1 then
-			tinsert(ValorMountGlobal.softOverrides, { vmMain.zoneInfo.instanceId, vmMain.zoneInfo.mapId, vmMain.zoneInfo.areaText, newValue })
+		if newValue then
+			if newValue > 1 then
+				tinsert(ValorMountGlobal.softOverrides, { vmMain.zoneInfo.instanceId, vmMain.zoneInfo.mapId, vmMain.zoneInfo.areaText, newValue })
+			end
+			vmMain.zoneInfo.zoneSoft = newValue
+		end
+
+		-- Update Options Dropdown
+		if vmPrefs.contentFrame.fromTop then
+			vmPrefs.contentFrame.vmFrames.dropDownFlying.updateDropDown()
+			vmPrefs.contentFrame.vmFrames.titleHeaderFlyingInfo2.updateInfoText()
 		end
 	end
 end
@@ -744,6 +750,13 @@ do
 		f.titleHeaderFlyingInfo2 = f.titleHeaderFlyingInfo2 or mainFrame:CreateFontString(nil, 'ARTWORK', 'GameFontHighlightSmall')
 		f.titleHeaderFlyingInfo2:SetPoint('TOPLEFT', 20, mainFrame.fromTop)
 		f.titleHeaderFlyingInfo2:SetText("InstanceId: MapId: Area:")
+		f.titleHeaderFlyingInfo2.updateInfoText = function()
+			local zoneInfo = vmMain.zoneInfo
+			f.titleHeaderFlyingInfo2:SetText(format(
+			"InstanceId:|cFFF58CBA %d (%s)|r MapId:|cFF00FF96 %d (%s)|r%s|r",
+			zoneInfo.instanceId, zoneInfo.instanceName, zoneInfo.mapId, zoneInfo.mapName,
+			zoneInfo.areaText == "" and "" or " Area:|cFF69CCF0 "..zoneInfo.areaText.."|r"))
+		end
 		mainFrame.fromTop = mainFrame.fromTop - (f.titleHeaderFlyingInfo2:GetHeight() + 8)
 
 		-- Flyable Area Override Dropdown
@@ -758,7 +771,7 @@ do
 				local row = UIDropDownMenu_CreateInfo()
 				row.text = dropChoices.zone[i]
 				row.value = i
-				row.func = function (self) vmSetZoneInfo(self.value) f.dropDownFlying.updateDropDown() end
+				row.func = function (self) vmSetZoneInfo(self.value) end
 				UIDropDownMenu_AddButton(row)
 			end
 		end
@@ -792,12 +805,10 @@ do
 	-------------------------------------------------
 	function createMountOptions(parentFrame)
 		-- Prepare
-		vmSetZoneInfo()
 		local mainFrame = parentFrame.contentFrame
 		local f = mainFrame.vmFrames
 		local mF = mainFrame.vmMounts
 		local mountDb = ValorMountLocal.mountDb
-		local zoneInfo = vmMain.zoneInfo
 
 		-- Create the Static Part of the Panel
 		if not parentFrame.contentFrame.fromTop then
@@ -805,12 +816,9 @@ do
 		end
 
 		-- Zone Override
+		vmSetZoneInfo()
 		f.dropDownFlying.updateDropDown()
-		f.titleHeaderFlyingInfo2:SetText(format(
-			"InstanceId:|cFFF58CBA %d (%s)|r MapId:|cFF00FF96 %d (%s)|r%s|r",
-			zoneInfo.instanceId, zoneInfo.instanceName, zoneInfo.mapId, zoneInfo.mapName,
-			zoneInfo.areaText == "" and "" or " Area:|cFF69CCF0 "..zoneInfo.areaText.."|r"
-		))
+		f.titleHeaderFlyingInfo2.updateInfoText()
 
 		-- Hide All Created Mount Dropdowns
 		f.titleHeaderMountsInfo1:Hide()
