@@ -157,6 +157,8 @@ end
 --------------------------------------------------------------------------------------------------
 local function vmLocalFavs()
 	if not ValorMountGlobal.localFavs then return end
+	local filterCollected, filterNotCollected, filterUnUsable
+		= _G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE
 	local GetCollectedFilterSetting, SetCollectedFilterSetting, SetAllSourceFilters, SetIsFavorite
 		= _G.C_MountJournal.GetCollectedFilterSetting, _G.C_MountJournal.SetCollectedFilterSetting, _G.C_MountJournal.SetAllSourceFilters, _G.C_MountJournal.SetIsFavorite
 
@@ -168,14 +170,14 @@ local function vmLocalFavs()
 	end
 
 	-- Keep Current Filters
-	local setCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED)
-	local setNotCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED)
-	local setUnUsable = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE)
+	local setCollected = GetCollectedFilterSetting(filterCollected)
+	local setNotCollected = GetCollectedFilterSetting(filterNotCollected)
+	local setUnUsable = GetCollectedFilterSetting(filterUnUsable)
 
 	-- Set Filters to Show Everything
-	if not setCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, true) end
-	if not setNotCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, true) end
-	if not setUnUsable then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, true) end
+	if not setCollected then SetCollectedFilterSetting(filterCollected, true) end
+	if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, true) end
+	if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, true) end
 	SetAllSourceFilters(true)
 
 	-- Load IDs from Favorites
@@ -197,9 +199,9 @@ local function vmLocalFavs()
 	end
 
 	-- Restore Main Filters
-	if not setCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, false) end
-	if not setNotCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, false) end
-	if not setUnUsable then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, false) end
+	if not setCollected then SetCollectedFilterSetting(filterCollected, false) end
+	if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, false) end
+	if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, false) end
 end
 
 -------------------------------------------------
@@ -234,28 +236,7 @@ do
 		[1469] = -1,	-- The Heart of Azeroth (Shaman Class Hall)
 		[1514] = -1,	-- The Wandering Isle (Monk Class Hall)
 	}
---[[
-		-- Just in case I want to go back to this method...
-		-- { instanceId, mapId, SubZoneText, reqSpellId = { -1 = NoFlyZone = 0 = FlyZone, #### = Required Spell Id } }
-		--{1220,nil,nil,233368},						-- Broken Isles
-		--{1116,nil,nil,191645}, {1464,nil,nil,191645},	-- Draenor and Tanaan
-		--{1158,nil,nil,191645}, {1331,nil,nil,191645},	-- Alliance Garrison
-		--{1159,nil,nil,191645}, {1160,nil,nil,191645},
-		--{1152,nil,nil,191645}, {1330,nil,nil,191645},	-- Horde Garrison
-		--{1153,nil,nil,191645}, {1154,nil,nil,191645},
-		-- isFlyableArea False Positives
-		--{1191,nil,nil,-1},	-- Ashran
-		--{1669,nil,nil,-1},	-- Argus
-		--{1463,nil,nil,-1},	-- Helheim
-		--{1107,nil,nil,-1},	-- Dreadscar Rift (Warlock Class Hall)
-		--{1479,nil,nil,-1},	-- Skyhold (Warrior Class Hall)
-		--{1519,nil,nil,-1},	-- The Fel Hammer (Demon Hunter Class Hall)
-		--{1469,nil,nil,-1},	-- The Heart of Azeroth (Shaman Class Hall)
-		--{1514,nil,nil,-1},	-- The Wandering Isle (Monk Class Hall)
-		for i = 1, #hardOverrides do
-			local zoneData = hardOverrides[i]
-			if (not zoneData[1] or zoneData[1] == instanceId) and (not zoneData[2] or zoneData[2] == mapId) and (not zoneData[3] or zoneData[3] == areaText) then
-]]--
+
 	local function vmGetInstanceInfo()
 		local instanceName, _, _, _, _, _, _, instanceId = GetInstanceInfo()
 		return instanceName, instanceId
@@ -306,7 +287,7 @@ do
 end
 
 local function vmCanRide()
-	-- 33388 Apprentice, 33391 Journeyman
+	-- 33388 Apprentice, 33391 Journeyman, 34090 Expert, 34091 Artisan, 90265 Master
 	return IsPlayerSpell(33388) or IsPlayerSpell(33391) or IsPlayerSpell(34090) or IsPlayerSpell(34091) or IsPlayerSpell(90265)
 end
 
@@ -886,7 +867,6 @@ do
 	end
 end
 
-
 -- Setup the Macro Frame
 -------------------------------------------------
 vmMain:SetAttribute("type", "macro")
@@ -902,7 +882,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 			vmSetDefaults()
 		end
 
-		-- Set Local Favorites, DB Already Built
+		-- Set Local Favorites, DB Already Built or New Character
 		if ValorMountGlobal.localFavs then
 			ValorMountLocal.mountDb = ValorMountLocal.mountDb or {}
 			vmLocalFavs()
@@ -912,8 +892,6 @@ vmMain:SetScript("OnEvent", function(self, event)
 		end
 
 		-- Hook SetIsFavorite to keep track
-		-- TODO move this to vmLocalFavs or whatever it is.
-		-- TODO replace mount acquisition data in vmGetMount
 		_G.hooksecurefunc(_G.C_MountJournal, "SetIsFavorite", function()
 			for i = 1, GetNumDisplayedMounts() do
 				local mountName, spellId, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
@@ -951,12 +929,12 @@ vmMain:SetScript("OnEvent", function(self, event)
 	-- Wandered into a new zone
 	elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
 		self.zoneChanged = true
+
 	-- Update the Macro
 	else
 		vmSetMacro(self)
 	end
 end)
-
 
 -- Setup the Options Frame
 -------------------------------------------------
@@ -987,8 +965,6 @@ vmPrefs.refresh = function (self)
 end
 vmPrefs.name = "ValorMount"
 _G.InterfaceOptions_AddCategory(vmPrefs)
-
-
 
 -- Slash Commands and Key Bindings
 -------------------------------------------------
