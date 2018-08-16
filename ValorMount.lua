@@ -2,31 +2,33 @@
 -- ValorMount
 -------------------------------------------------
 -- Global: ValorAddons
--- SavedVariables: ValorMountGlob ValorMountChar
+-- SavedVariables: ValorMountGlobal ValorMountLocal
 --------------------------------------------------------------------------------------------------
 local _G = _G
-local addonName, _ = ...
-local vmVersion = "1.0"
+local addonName = ...
+local vmVersion = "2.0"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
 -- Locals
 -------------------------------------------------
-local tempTable, mountList = {}, {}
-local tinsert, tremove, sort, wipe, pairs, random, select
-	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select
-local playerRace, playerClass, wasMoonkin
-	= select(2, _G.UnitRace("player")), select(2, _G.UnitClass("player")), false
-local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText, C_Map
-	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText, _G.C_Map
-local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, C_MountJournal, GetBindingKey
-	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.C_MountJournal, _G.GetBindingKey
+local tempOne = {}
+local tinsert, tremove, sort, wipe, pairs, random, select, format, unpack
+	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select, _G.format, _G.unpack
+local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText
+	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText
+local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, GetBindingKey
+	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.GetBindingKey
 local IsPlayerSpell, IsSubmerged, SecureCmdOptionParse, UnitAffectingCombat, SetOverrideBindingClick, ClearOverrideBindings
 	= _G.IsPlayerSpell, _G.IsSubmerged, _G.SecureCmdOptionParse, _G.UnitAffectingCombat, _G.SetOverrideBindingClick, _G.ClearOverrideBindings
-local GetBestMapForUnit, GetMapInfo, GetMountIDs, GetMountInfoByID, GetMountInfoExtraByID
-	= C_Map.GetBestMapForUnit, C_Map.GetMapInfo, C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID, C_MountJournal.GetMountInfoExtraByID
-local vmMain = CreateFrame("Frame", nil, _G.UIParent)
-local vmButton = CreateFrame("Button", "ValorMountButton", nil, "SecureActionButtonTemplate")
+local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBestMapForUnit
+	= _G.C_MountJournal.GetMountInfoExtraByID, _G.C_MountJournal.GetNumDisplayedMounts, _G.C_MountJournal.GetDisplayedMountInfo, _G.C_Map.GetBestMapForUnit
+local GetMapInfo, GetMountIDs, GetMountInfoByID
+	=  _G.C_Map.GetMapInfo, _G.C_MountJournal.GetMountIDs, _G.C_MountJournal.GetMountInfoByID
+local playerRace, playerClass, playerFaction, playerLevel
+	= select(2, _G.UnitRace("player")), select(2, _G.UnitClass("player")), _G.UnitFactionGroup("player"), _G.UnitLevel("player")
+local vmPrefs = CreateFrame("Frame", nil, _G.UIParent)
+local vmMain = CreateFrame("Button", "ValorMountButton", nil, "SecureActionButtonTemplate")
 local spellMap = {
 	GhostWolf = 2645,
 	ZenFlight = 125883,
@@ -82,17 +84,16 @@ local vmInfo = {
 -------------------------------------------------
 -- Option Defaults
 --------------------------------------------------------------------------------------------------
-local function vmSetDefaults()
-	wipe(tempTable)
-	tempTable = {
-		Glob = {
-			version = vmVersion,
-			charFavs = false,
+local vmSetDefaults
+do
+	local vmDefaults = {
+		Global = {
+			localFavs = false,
 			groundFly = {},
 			softOverrides = {},
 		},
-		Char = {
-			version = vmVersion,
+		Local = {
+			mountDb = {},
 			Enabled = true,
 			MonkZenFlight = true,
 			ShamanGhostWolf = true,
@@ -100,132 +101,242 @@ local function vmSetDefaults()
 			DruidMoonkin = true,	DruidFormRandom = false,	DruidFormAlways = false,
 		}
 	}
-	-- Empty
-	if not ValorMountGlob then ValorMountGlob = {} end
-	if not ValorMountChar then ValorMountChar = {} end
-	if not ValorMountFavs then ValorMountFavs = {} end
-	-- Newer Version
-	if (not ValorMountChar.version or ValorMountChar.version < vmVersion) then
-		for k,_ in pairs(tempTable.Char) do
-			ValorMountChar[k] = ValorMountChar[k] ~= nil and ValorMountChar[k] or tempTable.Char[k]
+
+	function vmSetDefaults()
+		-- Create Table
+		ValorMountGlobal = ValorMountGlobal or {}
+		ValorMountLocal = ValorMountLocal or {}
+		-- Set Empty Defaults
+		if (not ValorMountLocal.version or ValorMountLocal.version < vmVersion) then
+			for k in pairs(vmDefaults.Local) do
+				ValorMountLocal[k] = ValorMountLocal[k] ~= nil and ValorMountLocal[k] or vmDefaults.Local[k]
+			end
+			ValorMountLocal.version = vmVersion
 		end
-		ValorMountChar.version = vmVersion
-	end
-	if (not ValorMountGlob.version or ValorMountGlob.version < vmVersion) then
-		for k,_ in pairs(tempTable.Glob) do
-			ValorMountGlob[k] = ValorMountGlob[k] ~= nil and ValorMountGlob[k] or tempTable.Glob[k]
+		if (not ValorMountGlobal.version or ValorMountGlobal.version < vmVersion) then
+			for k in pairs(vmDefaults.Global) do
+				ValorMountGlobal[k] = ValorMountGlobal[k] ~= nil and ValorMountGlobal[k] or vmDefaults.Global[k]
+			end
+			ValorMountGlobal.version = vmVersion
 		end
-		ValorMountGlob.version = vmVersion
 	end
 end
 
--------------------------------------------------
--- Character-Specific Favorites
---------------------------------------------------------------------------------------------------
-local vmCharFavs
-do
-	local vmCharFavsHooked = false
-	local GetCollectedFilterSetting, SetCollectedFilterSetting, SetAllSourceFilters
-		= C_MountJournal.GetCollectedFilterSetting, C_MountJournal.SetCollectedFilterSetting, C_MountJournal.SetAllSourceFilters
-	local GetNumDisplayedMounts, GetDisplayedMountInfo, SetIsFavorite
-		= C_MountJournal.GetNumDisplayedMounts, C_MountJournal.GetDisplayedMountInfo, C_MountJournal.SetIsFavorite
 
-	-- Fires from the Options Menu
-	-------------------------------------------------
-	local function vmCharFavsInit()
-		wipe(ValorMountFavs)
+-------------------------------------------------
+-- Mount DB - Keep table of only favorites, save on calls to GetMountInfo*
+--------------------------------------------------------------------------------------------------
+-- ValorMountLocal.mountDb = {	{ mountId, mountName, mountType, spellId } }
+local function vmMountDb (isFavorite, mountId, mountName, mountType, spellId)
+	-- Only isFavorite and mountId are required
+	if not mountId then return end
+
+	-- Scan DB for this mountId to remove or do nothing
+	for i = 1, #ValorMountLocal.mountDb do
+		local row = ValorMountLocal.mountDb[i]
+		if row[1] == mountId then
+			if not isFavorite then
+				tremove(ValorMountLocal.mountDb, i)
+				break
+			end
+			return
+		end
+	end
+
+	-- Add to DB
+	if isFavorite and mountId and mountName and mountType and spellId then
+		tinsert(ValorMountLocal.mountDb, { mountId, mountName, mountType, spellId })
+	end
+
+	-- Sort, not for fun, for the Options Menu.
+	sort(ValorMountLocal.mountDb, function (a,b) return a[2] < b[2] end)
+end
+
+-------------------------------------------------
+-- Handles the db when Char Specific Favorites is disabled
+--------------------------------------------------------------------------------------------------
+local vmBuildDb
+do
+	-- Save Specific Mount
+	local function vmSaveMount(mountId)
+		local mountName, spellId, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected = GetMountInfoByID(mountId)
+		if isFavorite and isCollected and not hideOnChar then
+			local _, _, _, _, mountType = GetMountInfoExtraByID(mountId)
+			vmMountDb(isFavorite, mountId, mountName, mountType, spellId)
+		end
+	end
+
+	-- Fresh Build
+	local function vmSaveAll()
+		wipe(ValorMountLocal.mountDb)
 		local mountIds = GetMountIDs()
 		for i = 1, #mountIds do
 			local mountId = mountIds[i]
-			local _, _, _, _, _, _, isFavorite, _, _, hideOnChar = GetMountInfoByID(mountId)
-			if isFavorite and not hideOnChar then
-				ValorMountFavs[mountId] = true
-			end
+			vmSaveMount(mountId)
 		end
-	end
-
-	-- Fires on Login, prepare MountJournal and load favorites
-	-------------------------------------------------
-	local function vmCharFavsLoad()
-		-- Set Filters to Show Everything
-		local setCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED)
-		local setNotCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED)
-		local setUnUsable = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE)
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, true)
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, true)
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, true)
-		SetAllSourceFilters(true)
-
-		-- Loop the Journal
-		local i = 0
-		while i < GetNumDisplayedMounts() do
-			i = i + 1
-			local _, _, _, _, _, _, isFavorite, _, _, _, _, mountId = GetDisplayedMountInfo(i)
-			local savedFavorite = ValorMountFavs[mountId] or false
-			if savedFavorite ~= isFavorite then
-				SetIsFavorite(i, savedFavorite)
-				i = savedFavorite and i or i - 1
-			end
-		end
-
-		-- Cleanup
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, setCollected)
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, setNotCollected)
-		SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, setUnUsable)
 	end
 
 	-- Function Router
-	-------------------------------------------------
-	function vmCharFavs(action)
-		if not ValorMountGlob.charFavs then return end
-
-		-- Incompatible AddOn Warning
-		if _G.IsAddOnLoaded("MountJournalEnhanced") then
-			local yellColor = _G.ChatTypeInfo.YELL
-			_G.DEFAULT_CHAT_FRAME:AddMessage("ValorMount Warning: Mount Journal Enhanced can interfere with Character-Specific Favorites due to its filters!",
-				yellColor.r, yellColor.g, yellColor.b, yellColor.id)
-		end
-
-		-- Perform Task
-		if action then
-			vmCharFavsInit()
-		else
-			vmCharFavsLoad()
-		end
-
-		-- Hook SetIsFavorite
-		if not vmCharFavsHooked then
-			_G.hooksecurefunc(C_MountJournal, "SetIsFavorite", function()
-				if not ValorMountGlob.charFavs then return end
-					for i = 1, GetNumDisplayedMounts() do
-						local _, _, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
-						if mountId and not hideOnChar and isCollected then
-							if ValorMountFavs[mountId] and not isFavorite then
-								ValorMountFavs[mountId] = nil
-							elseif isFavorite and not ValorMountFavs[mountId] then
-								ValorMountFavs[mountId] = true
-							end
-						end
-					end
-				end)
-			vmCharFavsHooked = true
+	function vmBuildDb (isFavorite, mountId)
+		-- (false,###) - Remove Mount
+		if not isFavorite and mountId then
+			vmMountDb(isFavorite, mountId)
+		-- (true,###) - Add Mount
+		elseif isFavorite and mountId then
+			vmSaveMount(mountId)
+		-- (true) = Fresh Build
+		elseif isFavorite and not mountId then
+			vmSaveAll()
 		end
 	end
+
+end
+
+-------------------------------------------------
+-- Restore Character-Specific Favorites at Login
+--------------------------------------------------------------------------------------------------
+local function vmLocalFavs()
+	if not ValorMountGlobal.localFavs then return end
+	local GetCollectedFilterSetting, SetCollectedFilterSetting, SetAllSourceFilters, SetIsFavorite
+		= _G.C_MountJournal.GetCollectedFilterSetting, _G.C_MountJournal.SetCollectedFilterSetting, _G.C_MountJournal.SetAllSourceFilters, _G.C_MountJournal.SetIsFavorite
+
+	-- Incompatible AddOn Warning
+	if _G.IsAddOnLoaded("MountJournalEnhanced") then
+		local yellColor = _G.ChatTypeInfo.YELL
+		_G.DEFAULT_CHAT_FRAME:AddMessage("ValorMount Warning: Mount Journal Enhanced can interfere with Character-Specific Favorites due to its filters!",
+			yellColor.r, yellColor.g, yellColor.b, yellColor.id)
+	end
+
+	-- Keep Current Filters
+	local setCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED)
+	local setNotCollected = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED)
+	local setUnUsable = GetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE)
+
+	-- Set Filters to Show Everything
+	if not setCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, true) end
+	if not setNotCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, true) end
+	if not setUnUsable then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, true) end
+	SetAllSourceFilters(true)
+
+	-- Load IDs from Favorites
+	wipe(tempOne)
+	for i = 1, #ValorMountLocal.mountDb do
+		tempOne[ValorMountLocal.mountDb[i][1]] = true
+	end
+
+	-- Flip through the Journal
+	local i = 0
+	while i < GetNumDisplayedMounts() do
+		i = i + 1
+		local _, _, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
+		local savedFavorite = (not hideOnChar and isCollected and tempOne[mountId]) or false
+		if savedFavorite ~= isFavorite then
+			SetIsFavorite(i, savedFavorite)
+			i = savedFavorite and i or i - 1
+		end
+	end
+
+	-- Restore Main Filters
+	if not setCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, false) end
+	if not setNotCollected then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, false) end
+	if not setUnUsable then SetCollectedFilterSetting(_G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE, false) end
 end
 
 -------------------------------------------------
 -- Various Functions
 -------------------------------------------------
-local function vmBindings(self)
+local function vmBindings(theButton)
 	if InCombatLockdown() then return end
-	ClearOverrideBindings(self)
+	ClearOverrideBindings(theButton)
 	local k1, k2 = GetBindingKey("VALORMOUNTBINDING1")
-	if k1 then SetOverrideBindingClick(self, true, k1, self:GetName()) end
-	if k2 then SetOverrideBindingClick(self, true, k2, self:GetName()) end
+	if k1 then SetOverrideBindingClick(theButton, true, k1, theButton:GetName()) end
+	if k2 then SetOverrideBindingClick(theButton, true, k2, theButton:GetName()) end
 end
 
-local function vmZoneInfo()
-	return select(8, GetInstanceInfo()), GetBestMapForUnit("player"), GetSubZoneText()
+local vmSetZoneInfo
+do
+	-- 191645 = WOD Pathfinder, 233368 = Legion Pathfinder
+	local hardOverrides = {
+		-- Pathfinder
+		[1220] = 233368,
+		[1116] = 191645, [1464] = 191645,	-- Draenor and Tanaan
+		[1158] = 191645, [1331] = 191645,	-- Alliance Garrison
+		[1159] = 191645, [1160] = 191645,
+		[1152] = 191645, [1330] = 191645,	-- Horde Garrison
+		[1153] = 191645, [1154] = 191645,
+		-- isFlyableArea False Positives
+		[1191] = -1,	-- Ashran
+		[1669] = -1,	-- Argus
+		[1463] = -1,	-- Helheim
+		[1107] = -1,	-- Dreadscar Rift (Warlock Class Hall)
+		[1479] = -1,	-- Skyhold (Warrior Class Hall)
+		[1519] = -1,	-- The Fel Hammer (Demon Hunter Class Hall)
+		[1469] = -1,	-- The Heart of Azeroth (Shaman Class Hall)
+		[1514] = -1,	-- The Wandering Isle (Monk Class Hall)
+	}
+--[[
+		-- Just in case I want to go back to this method...
+		-- { instanceId, mapId, SubZoneText, reqSpellId = { -1 = NoFlyZone = 0 = FlyZone, #### = Required Spell Id } }
+		--{1220,nil,nil,233368},						-- Broken Isles
+		--{1116,nil,nil,191645}, {1464,nil,nil,191645},	-- Draenor and Tanaan
+		--{1158,nil,nil,191645}, {1331,nil,nil,191645},	-- Alliance Garrison
+		--{1159,nil,nil,191645}, {1160,nil,nil,191645},
+		--{1152,nil,nil,191645}, {1330,nil,nil,191645},	-- Horde Garrison
+		--{1153,nil,nil,191645}, {1154,nil,nil,191645},
+		-- isFlyableArea False Positives
+		--{1191,nil,nil,-1},	-- Ashran
+		--{1669,nil,nil,-1},	-- Argus
+		--{1463,nil,nil,-1},	-- Helheim
+		--{1107,nil,nil,-1},	-- Dreadscar Rift (Warlock Class Hall)
+		--{1479,nil,nil,-1},	-- Skyhold (Warrior Class Hall)
+		--{1519,nil,nil,-1},	-- The Fel Hammer (Demon Hunter Class Hall)
+		--{1469,nil,nil,-1},	-- The Heart of Azeroth (Shaman Class Hall)
+		--{1514,nil,nil,-1},	-- The Wandering Isle (Monk Class Hall)
+		for i = 1, #hardOverrides do
+			local zoneData = hardOverrides[i]
+			if (not zoneData[1] or zoneData[1] == instanceId) and (not zoneData[2] or zoneData[2] == mapId) and (not zoneData[3] or zoneData[3] == areaText) then
+]]--
+	local function vmGetInstanceInfo()
+		local instanceName, _, _, _, _, _, _, instanceId = GetInstanceInfo()
+		return instanceName, instanceId
+	end
+
+	function vmSetZoneInfo(newValue)
+		-- Create Table
+		vmMain.zoneInfo = vmMain.zoneInfo or {}
+
+		-- We are not where we once were.
+		if vmMain.zoneChanged then
+			vmMain.zoneInfo.instanceName, vmMain.zoneInfo.instanceId = vmGetInstanceInfo()
+			vmMain.zoneInfo.mapId, vmMain.zoneInfo.areaText = GetBestMapForUnit("player"), GetSubZoneText()
+			local mapInfo = GetMapInfo(vmMain.zoneInfo.mapId)
+			vmMain.zoneInfo.mapName = mapInfo.name
+			vmMain.zoneInfo.zoneHard = hardOverrides[vmMain.zoneInfo.instanceId] or false
+			vmMain.zoneInfo.zoneSoft = 1
+		end
+
+		-- Only loop softOverrides if necessary.
+		if newValue or vmMain.zoneChanged then
+			for i = 1, #ValorMountGlobal.softOverrides do
+				local zoneData = ValorMountGlobal.softOverrides[i]
+				if zoneData[1] == vmMain.zoneInfo.instanceId and zoneData[2] == vmMain.zoneInfo.mapId and zoneData[3] == vmMain.zoneInfo.areaText then
+					if newValue then
+						tremove(ValorMountGlobal.softOverrides, i)
+					end
+					vmMain.zoneInfo.zoneSoft = newValue or zoneData[4]
+					if vmPrefs.vmFrames then
+						vmPrefs.vmFrames.updateDropDown()
+					end
+				end
+			end
+		end
+
+		-- Done
+		vmMain.zoneChanged = false
+		if newValue and newValue > 1 then
+			tinsert(ValorMountGlobal.softOverrides, { vmMain.zoneInfo.instanceId, vmMain.zoneInfo.mapId, vmMain.zoneInfo.areaText, newValue })
+		end
+	end
 end
 
 local function vmCanRide()
@@ -233,79 +344,41 @@ local function vmCanRide()
 	return IsPlayerSpell(33388) or IsPlayerSpell(33391) or IsPlayerSpell(34090) or IsPlayerSpell(34091) or IsPlayerSpell(90265)
 end
 
-local function vmVashjir(mapId)
+local function vmVashjir()
 	-- 201 = Kelp'thar Forest, 203 = Vashj'ir, 204 = Abyssal Depths, 205 = Shimmering Expanse
 	if not IsSubmerged() then return false end
-	mapId = mapId or GetBestMapForUnit("player")
-	return mapId == 204 or mapId == 201 or mapId == 205 or mapId == 203
+	return vmMain.zoneInfo.mapId == 204 or vmMain.zoneInfo.mapId == 201 or vmMain.zoneInfo.mapId == 205 or vmMain.zoneInfo.mapId == 203
 end
 
 -- Flying Area Detection
 -------------------------------------------------
-local vmCanFly
-do
-	-- 191645 = WOD Pathfinder, 233368 = Legion Pathfinder
-	-- { instanceId, mapId, SubZoneText, reqSpellId = { -1 = NoFlyZone = 0 = FlyZone, #### = Required Spell Id } }
-	-- Will simplify if mapId and SubZoneText are never used here.
-	local hardOverrides = {
-		-- Pathfinder
-		{1220,nil,nil,233368},							-- Broken Isles
-		{1116,nil,nil,191645}, {1464,nil,nil,191645},	-- Draenor and Tanaan
-		{1158,nil,nil,191645}, {1331,nil,nil,191645},	-- Alliance Garrison
-		{1159,nil,nil,191645}, {1160,nil,nil,191645},
-		{1152,nil,nil,191645}, {1330,nil,nil,191645},	-- Horde Garrison
-		{1153,nil,nil,191645}, {1154,nil,nil,191645},
-		-- isFlyableArea False Positives
-		{1191,nil,nil,-1},	-- Ashran
-		{1669,nil,nil,-1},	-- Argus
-		{1463,nil,nil,-1},	-- Helheim
-		{1107,nil,nil,-1},	-- Dreadscar Rift (Warlock Class Hall)
-		{1479,nil,nil,-1},	-- Skyhold (Warrior Class Hall)
-		{1519,nil,nil,-1},	-- The Fel Hammer (Demon Hunter Class Hall)
-		{1469,nil,nil,-1},	-- The Heart of Azeroth (Shaman Class Hall)
-		{1514,nil,nil,-1},	-- The Wandering Isle (Monk Class Hall)
-	}
-
-	function vmCanFly()
-		-- No Flying Skill
-		if not IsPlayerSpell(34090) and not IsPlayerSpell(34091) and not IsPlayerSpell(90265) then
-			return false
-		end
-
-		-- Prepare
-		local iId, mId, sZt = vmZoneInfo()
-
-		-- Loop Soft Overrides
-		for i = 1, #ValorMountGlob["softOverrides"] do
-			local zR = ValorMountGlob["softOverrides"][i]
-			if zR[1] == iId and zR[2] == mId and zR[3] == sZt then
-				if zR[4] > 1 then
-					return zR[4] == 2 and true or false
-				end
-				break
-			end
-		end
-
-		-- Loop Hard Overrides
-		for i = 1, #hardOverrides do
-			local zR = hardOverrides[i]
-			if (not zR[1] or zR[1] == iId) and (not zR[2] or zR[2] == mId) and (not zR[3] or zR[3] == sZt) then
-				if zR[4] > 0 then
-					return IsPlayerSpell(zR[4])
-				else
-					return zR[4] == 0 and true or false
-				end
-			end
-		end
-
-		-- Cannot Fly Here
-		if not IsFlyableArea() or IsInInstance() then
-			return false
-		end
-
-		-- To Infinity, and Beyond!
-		return true
+local function vmCanFly()
+	-- No Flying Skill
+	if not IsPlayerSpell(34090) and not IsPlayerSpell(34091) and not IsPlayerSpell(90265) then
+		return false
 	end
+
+	-- Overrides
+	-- softOverride: 1 = Ignore, 2 = Flying, 3 = Ground
+	if vmMain.zoneInfo.zoneSoft > 1 then
+		return vmMain.zoneInfo.zoneSoft == 2 and true or false
+	end
+	-- hardOverride: false = Ignore, -1 = Ground, 0 = Flying, >0 = reqSpellId
+	if vmMain.zoneInfo.zoneHard then
+		if vmMain.zoneInfo.zoneHard > 0 then
+			return IsPlayerSpell(vmMain.zoneInfo.zoneHard)
+		else
+			return vmMain.zoneInfo.zoneHard == 0 and true or false
+		end
+	end
+
+	-- Cannot Fly Here
+	if not IsFlyableArea() or IsInInstance() then
+		return false
+	end
+
+	-- To Infinity, and Beyond!
+	return true
 end
 
 -------------------------------------------------
@@ -317,40 +390,53 @@ end
 --------------------------------------------------------------------------------------------------
 local vmGetMount
 do
-	local mountPool = {}
 	local topPriority = 1
-	local specialMount = { [678] = true, [679] = true, [373] = true, } -- 2x Heirlooms + Seahorse
+	local HEIRLOOM, GROUND, AQUATIC, FLYING = 10, 20, 30, 40
+	local WATER_STRIDER, VASHJIR_SEAHORSE, HEIRLOOM_ALLIANCE, HEIRLOOM_HORDE
+		= 269, 75207, 179245, 179244
 	local mountPriority = {
-		ground = 20,
-		flying = 40,
-		[230] = 20,	-- Ground Mount
-		[269] = 20,	--	Water Striders
-		[241] = 20,	--	Ahn'Qiraj Mounts
-		[284] = 10,	--	Heirloom Mounts
-		[248] = 40,	-- Flying Mount
-		[247] = 40,	--	Red Flying Cloud
-		[231] = 30,	-- Aquatic Mounts (Slow on Land)
-		[254] = 30,	--	Underwater Mounts
-		[232] = 0,	--	Vashj'ir Seahorse
+		[230] = GROUND,		-- Ground Mount
+		[269] = GROUND,		--	Water Striders
+		[241] = GROUND,		--	Ahn'Qiraj Mounts
+		[284] = HEIRLOOM,	--	Heirloom Mounts
+		[248] = FLYING,		-- Flying Mount
+		[247] = FLYING,		--	Red Flying Cloud
+		[231] = AQUATIC,	-- Aquatic Mounts (Slow on Land)
+		[254] = AQUATIC,	--	Underwater Mounts
+		[232] = 0,			--	Vashj'ir Seahorse
 	}
 
+	-- In the pool
 	local function addToPool(myPriority, spellId)
 		if myPriority >= topPriority then
 			if myPriority > topPriority then
 				topPriority = myPriority
-				wipe(mountPool)
+				wipe(tempOne)
 			end
-			tinsert(mountPool, spellId)
+			tinsert(tempOne, spellId)
 		end
 	end
 
 	function vmGetMount(canRide, canFly)
 		-- Prepare
 		topPriority = 1
-		wipe(mountPool)
-		local mountIds = GetMountIDs()
-		local mapId = GetBestMapForUnit("player")
-		local inVashjir = vmVashjir(mapId)
+		wipe(tempOne)
+		local zoneInfo = vmMain.zoneInfo
+		local mountDb = ValorMountLocal.mountDb
+
+		-- Vashj'ir Override - Always bet on the Seahorse
+		if vmVashjir(zoneInfo.mapId) and IsPlayerSpell(VASHJIR_SEAHORSE) then
+			return VASHJIR_SEAHORSE
+		end
+
+		-- Add Heirlooms
+		if not canRide or playerLevel < 20 then
+			if playerFaction == "Alliance" and IsPlayerSpell(HEIRLOOM_ALLIANCE) then
+				addToPool(HEIRLOOM, HEIRLOOM_ALLIANCE)
+			elseif playerFaction == "Horde" and IsPlayerSpell(HEIRLOOM_HORDE) then
+				addToPool(HEIRLOOM, HEIRLOOM_HORDE)
+			end
+		end
 
 		-- Druid: Travel Form
 		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm) then
@@ -358,49 +444,44 @@ do
 			if not canRide then
 				addToPool((IsSubmerged() and IsPlayerSpell(spellMap.AquaticForm)) and 15 or 5, spellMap.TravelForm)
 			-- DruidFormRandom: Treat Flight Form as a Favorite
-			elseif canFly and IsPlayerSpell(spellMap.FlightForm) and ValorMountChar.DruidFormRandom then
-				addToPool(mountPriority.flying, spellMap.TravelForm)
+			elseif canFly and IsPlayerSpell(spellMap.FlightForm) and ValorMountLocal.DruidFormRandom then
+				addToPool(FLYING, spellMap.TravelForm)
 			end
 		end
 
 		-- WorgenMount: Treat Running Wild as a Favorite
-		if playerRace == "Worgen" and ValorMountChar.WorgenMount and IsPlayerSpell(spellMap.RunningWild) then
-			addToPool(mountPriority.ground, spellMap.RunningWild)
+		if playerRace == "Worgen" and ValorMountLocal.WorgenMount and IsPlayerSpell(spellMap.RunningWild) then
+			addToPool(GROUND, spellMap.RunningWild)
 		end
 
 		-- Favorites
-		for i = 1, #mountIds do
-			local mountId = mountIds[i]
-			local _, spellId, _, _, isUsable, _, isFavorite = GetMountInfoByID(mountId)
-			if isUsable and (isFavorite or specialMount[mountId]) then
-				local mountType = select(5, GetMountInfoExtraByID(mountId))
-				local myPriority = mountPriority[mountType]
-				-- In Vashj'ir - Seahorse is King
-				if inVashjir and myPriority == 0 then
-					myPriority = 100
-				-- On Land - Remove Swimming Mounts
-				elseif not IsSubmerged() and myPriority == 30 then
+		for i = 1, #mountDb do
+			local mountId, _, mountType, spellId = unpack(mountDb[i])
+			local _, _, _, _, isUsable = GetMountInfoByID(mountId)
+			if isUsable then
+				local myPriority = mountPriority[mountType] or 0
+				-- On Land - Deprioritize Aquatic Mounts
+				if not IsSubmerged() and myPriority == AQUATIC then
 					myPriority = 0
-				-- Water Strider - When Swimming: +5 Priority, This > Ground but This < Swim
-				elseif mountType == 269 and IsSubmerged() then
+				-- Water Strider - +5 Priority When Swimming: This > Ground, This < Aquatic
+				elseif mountType == WATER_STRIDER and IsSubmerged() then
 					myPriority = myPriority + 5
 				-- Not Flying - Lower Priority for Flying Mounts
-				elseif not canFly and myPriority == mountPriority.flying then
-					myPriority = ValorMountGlob.groundFly[mountId] and ValorMountGlob.groundFly[mountId] > 1 and mountPriority.ground or 15
-				-- Flying Mount set Ground Only
-				elseif canFly and myPriority == mountPriority["flying"] and ValorMountGlob.groundFly[mountId] and ValorMountGlob.groundFly[mountId] > 2 then
-					myPriority = mountPriority.ground
+				elseif not canFly and myPriority == FLYING then
+					myPriority = ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 1 and GROUND or (HEIRLOOM + 5)
+				-- Flying Mount set to Ground Only
+				elseif canFly and myPriority == FLYING and ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 2 then
+					myPriority = GROUND
 				end
 				addToPool(myPriority, spellId)
 			end
 		end
 
 		-- *drum roll*
-		if #mountPool > 0 then
-			return mountPool[random(#mountPool)]
-		else
-			return false
+		if #tempOne > 0 then
+			return tempOne[random(#tempOne)]
 		end
+		return false
 	end
 end
 
@@ -409,21 +490,26 @@ end
 -------------------------------------------------
 local vmSetMacro
 do
+	local wasMoonkin = false
 	local macroFail = "/run C_MountJournal.SummonByID(0)\n"
 	local macroCond = "[nocombat,outdoors,nomounted,novehicleui]"
 	local macroText = "/leavevehicle [canexitvehicle]\n/dismount [mounted]\n"
+	local macroPre, macroPost, macroMount, mountCond, spellId
+	local canRide, canMount, inVashjir, canFly
 
 	local function vmMakeMacro()
 
 		-- ValorMount is Disabled
-		if not ValorMountChar.Enabled then
+		if not ValorMountLocal.Enabled then
 			return macroFail
 		end
 
 		-- Prepare
-		local macroPre, macroPost, macroMount, mountCond, spellId = "","","", macroCond, false
-		local canRide, canMount, inVashjir = vmCanRide(), SecureCmdOptionParse(macroCond), vmVashjir()
-		local canFly = canRide and vmCanFly() or false
+		vmSetZoneInfo()
+		macroPre, macroPost, macroMount, spellId, mountCond = "", "", "", false, macroCond
+		canRide, inVashjir = vmCanRide(), vmVashjir()
+		canMount = SecureCmdOptionParse(macroCond) or false
+		canFly = canRide and vmCanFly() or false
 
 		-- Druid & Travel Form
 		-- 5487 = Bear, 768 = Cat, 783 = Travel, 24858 = Moonkin, 114282 = Tree, 210053 = Stag
@@ -434,7 +520,7 @@ do
 				if fSpellId == spellMap.TravelForm and fActive then
 					macroPost = macroPost .. "\n/cancelform [form]"
 					-- DruidMoonkinForm: Shift back into Moonkin from Travel Form
-					if wasMoonkin and ValorMountChar.DruidMoonkin then
+					if wasMoonkin and ValorMountLocal.DruidMoonkin then
 						macroPost = macroPost .. "\n/cast [noform] " .. GetSpellInfo(spellMap.MoonkinForm)
 					end
 				elseif fSpellId == spellMap.MoonkinForm then
@@ -442,7 +528,7 @@ do
 				end
 			end
 			-- DruidFormAlways: Ignore Favorites if Flight Form is possible
-			if ValorMountChar.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm) then
+			if ValorMountLocal.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm) then
 				mountCond = "[outdoors,nomounted,novehicleui]"
 				spellId = spellMap.TravelForm
 			-- In Combat, Falling, Moving
@@ -453,7 +539,7 @@ do
 		end
 
 		-- ShamanGhostWolf
-		if playerClass == "SHAMAN" and ValorMountChar.ShamanGhostWolf and IsPlayerSpell(spellMap.GhostWolf) and not inVashjir then
+		if playerClass == "SHAMAN" and ValorMountLocal.ShamanGhostWolf and IsPlayerSpell(spellMap.GhostWolf) and not inVashjir then
 			macroPost = macroPost .. "\n/cancelform [form]"
 			if not canMount or UnitAffectingCombat("player") or IsPlayerMoving() then
 				mountCond = "[nomounted,noform,novehicleui]"
@@ -462,7 +548,7 @@ do
 		end
 
 		-- MonkZenFlight
-		if playerClass == "MONK" and ValorMountChar.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight) and canFly and IsOutdoors() and not IsSubmerged() and not inVashjir then
+		if playerClass == "MONK" and ValorMountLocal.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight) and canFly and IsOutdoors() and not IsSubmerged() and not inVashjir then
 			if not canMount or IsPlayerMoving() or IsFalling() then
 				mountCond = "[outdoors,nocombat,nomounted,noform,novehicleui]"
 				spellId = spellMap.ZenFlight
@@ -470,7 +556,7 @@ do
 		end
 
 		-- WorgenHuman: Worgen Two Forms before Mounting
-		if _G.ValorAddons.ValorWorgen and ValorMountChar.WorgenHuman and playerRace == "Worgen" and spellId ~= spellMap.RunningWild and spellId ~= spellMap.TravelForm and _G.ValorWorgenForm then
+		if _G.ValorAddons.ValorWorgen and ValorMountLocal.WorgenHuman and playerRace == "Worgen" and spellId ~= spellMap.RunningWild and spellId ~= spellMap.TravelForm and _G.ValorWorgenForm then
 			macroPre = macroPre .. "/cast [nocombat,nomounted,novehicleui,noform] Two Forms\n"
 		end
 
@@ -507,9 +593,10 @@ local createMountOptions
 do
 	local UIDropDownMenu_AddButton, UIDropDownMenu_CreateInfo, UIDropDownMenu_Initialize, UIDropDownMenu_SetButtonWidth
 		= _G.UIDropDownMenu_AddButton, _G.UIDropDownMenu_CreateInfo, _G.UIDropDownMenu_Initialize, _G.UIDropDownMenu_SetButtonWidth
-	local UIDropDownMenu_SetSelectedValue, UIDropDownMenu_SetText, UIDropDownMenu_SetWidth, PlaySound, SOUNDKIT
-		= _G.UIDropDownMenu_SetSelectedValue, _G.UIDropDownMenu_SetText, _G.UIDropDownMenu_SetWidth, _G.PlaySound, _G.SOUNDKIT
-
+	local UIDropDownMenu_SetSelectedValue, UIDropDownMenu_SetText, UIDropDownMenu_SetWidth
+		= _G.UIDropDownMenu_SetSelectedValue, _G.UIDropDownMenu_SetText, _G.UIDropDownMenu_SetWidth
+	local soundOn, soundOff
+		= _G.SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON, _G.SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF
 	local dropChoices = {
 		mount = { "Flying Only", "Both", "Ground Only" },
 		zone  = { "Default", "Flying Area", "Ground Only" },
@@ -527,10 +614,6 @@ do
 		if self.catId ~= "" then _G[scopeKey][self.catId][self.varId] = v
 		else _G[scopeKey][self.varId] = v
 		end
-		-- CharFavs Special
-		if self.scopeId == "Glob" and self.varId == "charFavs" then
-			if v then vmCharFavs(true) end
-		end
 	end
 
 	local function checkboxOnShow (self)
@@ -538,9 +621,8 @@ do
 	end
 
 	local function checkboxOnClick (self)
-		local checked = self:GetChecked()
-		PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
-		self:SetValue(checked)
+		_G.PlaySound(self:GetChecked() and soundOn or soundOff)
+		self:SetValue(self:GetChecked())
 	end
 
 	local function newCheckbox(parent, scopeId, catId, varId, dispName, dispDesc)
@@ -558,31 +640,6 @@ do
 		chkFrame.tooltipText = dispDesc and dispName or ""
 		chkFrame.tooltipRequirement = dispDesc or ""
 		return chkFrame
-	end
-
-	-- Flying Area Override
-	-------------------------------------------------
-	local function flyingOverride(iId,mId,sZt,val)
-		-- Find/Update Current Setting
-		for i = 1, #ValorMountGlob.softOverrides do
-			local zR = ValorMountGlob.softOverrides[i]
-			if zR[1] == iId and zR[2] == mId and zR[3] == sZt then
-				if val then
-					tremove(ValorMountGlob.softOverrides, i)
-					break
-				else
-					return zR[4]
-				end
-			end
-		end
-		-- New Setting
-		if val then
-			if val ~= 1 then
-				tinsert(ValorMountGlob.softOverrides, {iId,mId,sZt,val})
-			end
-			return true
-		end
-		return false
 	end
 
 	-- Dropdown Functions
@@ -612,30 +669,30 @@ do
 		mainFrame.fromTop = mainFrame.fromTop - (f.titleHeaderInfo:GetHeight() + 4)
 
 		-- Enabled Checkbox
-		f.chkCharEnabled = f.chkCharEnabled or newCheckbox(mainFrame,"Char","","Enabled",vmInfo.Enabled.name,vmInfo.Enabled.desc)
-		f.chkCharEnabled:SetPoint("TOPLEFT", 24, mainFrame.fromTop)
-		mainFrame.fromTop = mainFrame.fromTop - f.chkCharEnabled:GetHeight()
+		f.chkLocalEnabled = f.chkLocalEnabled or newCheckbox(mainFrame, "Local", "", "Enabled", vmInfo.Enabled.name, vmInfo.Enabled.desc)
+		f.chkLocalEnabled:SetPoint("TOPLEFT", 24, mainFrame.fromTop)
+		mainFrame.fromTop = mainFrame.fromTop - f.chkLocalEnabled:GetHeight()
 
 		-- Sort & Validate Dynamic Preferences
-		wipe(tempTable)
-		for k,_ in pairs(vmInfo) do
+		wipe(tempOne)
+		for k in pairs(vmInfo) do
 			if k ~= "Enabled" and (not vmInfo[k].race or vmInfo[k].race == playerRace) and (not vmInfo[k].class or vmInfo[k].class == playerClass) then
-				tempTable[#tempTable+1] = k
+				tinsert(tempOne, k)
 			end
 		end
 
 		-- Show Valid Dynamic Preferences
-		if (#tempTable > 0) then
-			sort(tempTable)
-			for kId=1,#tempTable do
-				local k = tempTable[kId]
+		if (#tempOne > 0) then
+			sort(tempOne)
+			for kId = 1, #tempOne do
+				local k = tempOne[kId]
 				local chkId = "Chk"..k
 				if not f[chkId] then
 					local tempDesc = vmInfo[k].desc
 					if vmInfo[k].addon and not _G.ValorAddons[vmInfo[k].addon] then
 						tempDesc = tempDesc .. "\n\n|cFFff728aRequires Addon:|r "..vmInfo[k].addon
 					end
-					f[chkId] = newCheckbox(mainFrame,"Char","",k,vmInfo[k].name,tempDesc)
+					f[chkId] = newCheckbox(mainFrame,"Local","",k,vmInfo[k].name,tempDesc)
 				end
 				f[chkId]:SetPoint("TOPLEFT", 24, mainFrame.fromTop)
 				mainFrame.fromTop = mainFrame.fromTop - f[chkId]:GetHeight()
@@ -665,9 +722,9 @@ do
 		mainFrame.fromTop = mainFrame.fromTop - (f.titleHeaderFavsInfo2:GetHeight() + 4)
 
 		-- Checkbox for Character-Specific Favorites
-		f.chkGlobFavorites = f.chkGlobFavorites or newCheckbox(mainFrame, "Glob", "", "charFavs", "Character-Specific Favorites")
-		f.chkGlobFavorites:SetPoint("TOPLEFT", 24, mainFrame.fromTop)
-		mainFrame.fromTop = mainFrame.fromTop - f.chkGlobFavorites:GetHeight()
+		f.chkGlobalFavorites = f.chkGlobalFavorites or newCheckbox(mainFrame, "Global", "", "localFavs", "Character-Specific Favorites")
+		f.chkGlobalFavorites:SetPoint("TOPLEFT", 24, mainFrame.fromTop)
+		mainFrame.fromTop = mainFrame.fromTop - f.chkGlobalFavorites:GetHeight()
 
 
 		-- Flyable Area Override
@@ -690,20 +747,18 @@ do
 		mainFrame.fromTop = mainFrame.fromTop - (f.titleHeaderFlyingInfo2:GetHeight() + 8)
 
 		-- Flyable Area Override Dropdown
-		local iId, mId, sZt = vmZoneInfo()
-		local curVal = flyingOverride(iId,mId,sZt)
 		f.dropDownFlying = f.dropDownFlying or CreateFrame("Frame", nil, mainFrame, "UIDropDownMenuTemplate")
-		f.dropDownFlying.zoneInfo = {iId,mId,sZt}
+		f.dropDownFlying.updateDropDown = function ()
+			local selectThis = vmMain.zoneInfo.zoneSoft or 1
+			UIDropDownMenu_SetSelectedValue(f.dropDownFlying, selectThis)
+			UIDropDownMenu_SetText(f.dropDownFlying, dropChoices.zone[selectThis])
+		end
 		f.dropDownFlying.initialize = function()
-			for i,n in ipairs(dropChoices.zone) do
+			for i = 1, #dropChoices.zone do
 				local row = UIDropDownMenu_CreateInfo()
-				row.text = n
+				row.text = dropChoices.zone[i]
 				row.value = i
-				row.checked = curVal == i or false
-				row.func = function (self)
-					flyingOverride(f.dropDownFlying.zoneInfo[1], f.dropDownFlying.zoneInfo[2], f.dropDownFlying.zoneInfo[3], self.value)
-					dropDownSelect(f.dropDownFlying, "zone", self.value)
-				end
+				row.func = function (self) vmSetZoneInfo(self.value) end
 				UIDropDownMenu_AddButton(row)
 			end
 		end
@@ -736,91 +791,69 @@ do
 	-- Main Function - Mount Frames & Refresh Zone
 	-------------------------------------------------
 	function createMountOptions(parentFrame)
-		-- Create the Static Part of the Menu
+		-- Prepare
+		vmSetZoneInfo()
+		local mainFrame = parentFrame.contentFrame
+		local f = mainFrame.vmFrames
+		local mF = mainFrame.vmMounts
+		local mountDb = ValorMountLocal.mountDb
+		local zoneInfo = vmMain.zoneInfo
+
+		-- Create the Static Part of the Panel
 		if not parentFrame.contentFrame.fromTop then
 			createMainOptions(parentFrame.contentFrame)
 		end
 
-		-- Prepare
-		local mainFrame = parentFrame.contentFrame
-		local f = mainFrame.vmFrames
-		local mF = mainFrame.vmMounts
-
 		-- Zone Override
-		local iId, mId, sZt = vmZoneInfo()
-		f.dropDownFlying.zoneInfo = {iId,mId,sZt}
-		dropDownSelect(f.dropDownFlying, "zone", flyingOverride(iId,mId,sZt) or 1)
+		f.dropDownFlying.updateDropDown()
+		f.titleHeaderFlyingInfo2:SetText(format(
+			"InstanceId:|cFFF58CBA %d (%s)|r MapId:|cFF00FF96 %d (%s)|r%s|r",
+			zoneInfo.instanceId, zoneInfo.instanceName, zoneInfo.mapId, zoneInfo.mapName,
+			zoneInfo.areaText == "" and "" or " Area:|cFF69CCF0 "..zoneInfo.areaText.."|r"
+		))
 
-		local mapInfo = GetMapInfo(mId)
-		local mapName = mapInfo.name
-		local instanceName = select(1, GetInstanceInfo())
-		if sZt == "" then sZt = "(blank)" end
-		f.titleHeaderFlyingInfo2:SetText(
-			"InstanceId: |cFFF58CBA" .. iId .. " (" .. instanceName .. ")|r  " ..
-			"MapId: |cFF00FF96" .. mId .. " (" .. mapName .. ")|r  " ..
-			"Area: |cFF69CCF0" .. sZt .. "|r"
-		)
-
-		-- Hide All Created Checkboxes
+		-- Hide All Created Mount Dropdowns
 		f.titleHeaderMountsInfo1:Hide()
 		f.titleHeaderMountsInfo2:Hide()
-		for k,_ in pairs(mF) do
+		for k in pairs(mF) do
 			mF[k]:Hide()
 		end
 
-		-- Holy Flying Favorites Batman!
-		wipe(tempTable)
-		wipe(mountList)
-		local mountIds = GetMountIDs()
-		for i=1,#mountIds do
-			local mountId = mountIds[i]
-			local mountName, _, _, _, _, _, isFavorite, _, _, hideOnChar = GetMountInfoByID(mountId)
-			if isFavorite and not hideOnChar then
-				local mountType = select(5, GetMountInfoExtraByID(mountId))
-				if mountType == 247 or mountType == 248 then
-					mountList[mountName] = mountId
-					tempTable[#tempTable+1] = mountName
-				end
-			end
-		end
-
-		-- Are there favorites set?
+		-- Loop Database
 		local fromTopPos = mainFrame.fromTop
-		if (#tempTable > 0) then
+		if #mountDb > 0 then
 			f.titleHeaderMountsInfo1:Show()
-			sort(tempTable)
-			for i=1,#tempTable do
-				local mountName = tempTable[i]
-				local mountId = mountList[mountName]
-				local mountLbl = "L" .. mountId
-				if not mF[mountId] then
-					mF[mountId] = { ["d"] = nil, ["l"] = nil }
-					mF[mountId] = CreateFrame("Frame", nil, mainFrame, "UIDropDownMenuTemplate")
-					mF[mountId].initialize = function()
-						for y,n in ipairs(dropChoices.mount) do
-							local row = UIDropDownMenu_CreateInfo()
-							row.text = n
-							row.value = y
-							row.func = function(self)
-								ValorMountGlob.groundFly[mountId] = self.value > 1 and self.value or nil
-								dropDownSelect(mF[mountId], "mount", self.value)
+			for i = 1, #mountDb do
+				local mountId, mountName, mountType = unpack(mountDb[i])
+				if mountType == 247 or mountType == 248 then
+					if not mF[mountId] then
+						mF[mountId] = CreateFrame("Frame", nil, mainFrame, "UIDropDownMenuTemplate")
+						mF[mountId].initialize = function()
+							for n = 1, #dropChoices.mount do
+								local row = UIDropDownMenu_CreateInfo()
+								row.text = dropChoices.mount[n]
+								row.value = n
+								row.func = function(self)
+									ValorMountGlobal.groundFly[mountId] = self.value > 1 and self.value or nil
+									dropDownSelect(mF[mountId], "mount", self.value)
+								end
+								UIDropDownMenu_AddButton(row)
 							end
-							UIDropDownMenu_AddButton(row)
 						end
+						UIDropDownMenu_SetWidth(mF[mountId], 100)
+						UIDropDownMenu_SetButtonWidth(mF[mountId], 100)
+						UIDropDownMenu_Initialize(mF[mountId], mF[mountId].initialize)
+						dropDownSelect(mF[mountId], "mount", ValorMountGlobal.groundFly[mountId] or 1)
+						mF[mountId.."Label"] = mainFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+						mF[mountId.."Label"]:SetText(mountName)
 					end
-					UIDropDownMenu_SetWidth(mF[mountId], 100)
-					UIDropDownMenu_SetButtonWidth(mF[mountId], 100)
-					UIDropDownMenu_Initialize(mF[mountId], mF[mountId].initialize)
-					dropDownSelect(mF[mountId], "mount", ValorMountGlob.groundFly[mountId] or 1)
-					mF[mountLbl] = mainFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-					mF[mountLbl]:SetText(mountName)
+					mF[mountId]:SetPoint("TOPLEFT", 12, fromTopPos)
+					mF[mountId]:Show()
+					mF[mountId.."Label"]:SetPoint("TOPLEFT", 153, fromTopPos+2)
+					mF[mountId.."Label"]:SetHeight(mF[mountId]:GetHeight())
+					mF[mountId.."Label"]:Show()
+					fromTopPos = fromTopPos - mF[mountId]:GetHeight()
 				end
-				mF[mountId]:SetPoint("TOPLEFT", 12, fromTopPos)
-				mF[mountId]:Show()
-				mF[mountLbl]:SetPoint("TOPLEFT", 153, fromTopPos+2)
-				mF[mountLbl]:SetHeight(mF[mountId]:GetHeight())
-				mF[mountLbl]:Show()
-				fromTopPos = fromTopPos - mF[mountId]:GetHeight()
 			end
 		else
 			f.titleHeaderMountsInfo2:Show()	-- No Favorites
@@ -834,42 +867,70 @@ end
 
 -- Setup the Macro Frame
 -------------------------------------------------
-vmButton:SetAttribute("type", "macro")
-vmButton:RegisterEvent("PLAYER_LOGIN")
-vmButton:SetScript("OnEvent", function(self, event)
+vmMain:SetAttribute("type", "macro")
+vmMain:RegisterEvent("PLAYER_LOGIN")
+vmMain:SetScript("OnEvent", function(self, event)
 	if event == "PLAYER_LOGIN" then
+		self.zoneChanged = true
 		if not _G.MountJournalSummonRandomFavoriteButton then _G.CollectionsJournal_LoadUI() end
 
 		-- Load Config Defaults if Necessary
-		if not ValorMountGlob or not ValorMountGlob.version or ValorMountGlob.version < vmVersion or
-		   not ValorMountChar or not ValorMountChar.version or ValorMountChar.version < vmVersion then
+		if not ValorMountGlobal or not ValorMountGlobal.version or ValorMountGlobal.version < vmVersion or
+		   not ValorMountLocal or not ValorMountLocal.version or ValorMountLocal.version < vmVersion then
 			vmSetDefaults()
 		end
 
-		-- Set Favorites
-		ValorMountFavs = ValorMountFavs or {}
-		if ValorMountGlob.charFavs then
-			vmCharFavs()
+		-- Set Local Favorites, DB Already Built
+		if ValorMountGlobal.localFavs then
+			ValorMountLocal.mountDb = ValorMountLocal.mountDb or {}
+			vmLocalFavs()
+		-- Refresh the DB
+		else
+			vmBuildDb(true)
 		end
+
+		-- Hook SetIsFavorite to keep track
+		-- TODO move this to vmLocalFavs or whatever it is.
+		-- TODO replace mount acquisition data in vmGetMount
+		_G.hooksecurefunc(_G.C_MountJournal, "SetIsFavorite", function()
+			for i = 1, GetNumDisplayedMounts() do
+				local mountName, spellId, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
+				isFavorite = (isCollected and not hideOnChar) and isFavorite or false
+				if isCollected and not hideOnChar then
+					if isFavorite then
+						local _, _, _, _, mountType = GetMountInfoExtraByID(mountId)
+						vmMountDb(isFavorite, mountId, mountName, mountType, spellId)
+					else
+						vmMountDb(isFavorite, mountId)
+					end
+				end
+			end
+		end)
 
 		-- Register for Events
 		self:RegisterEvent("PLAYER_ENTERING_WORLD")
-		self:RegisterEvent("LEARNED_SPELL_IN_TAB")
 		self:RegisterEvent("PLAYER_REGEN_DISABLED")
 		self:RegisterEvent("PLAYER_REGEN_ENABLED")
-		self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+		self:RegisterEvent("PLAYER_LEVEL_UP")
 		self:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
-		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-		self:RegisterEvent("ZONE_CHANGED")
 		self:RegisterEvent("UPDATE_BINDINGS")
+		self:RegisterEvent("ZONE_CHANGED")
+		self:RegisterEvent("ZONE_CHANGED_INDOORS")
+		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 		self:SetScript("PreClick", vmSetMacro)
 		vmBindings(self)
 
-	-- Keybindings
+	elseif event == "PLAYER_LEVEL_UP" then
+		playerLevel = playerLevel + 1
+
+	-- Manage Bindings
 	elseif event == "UPDATE_BINDINGS" then
 		vmBindings(self)
 
-	-- Update Macro
+	-- Wandered into a new zone
+	elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
+		self.zoneChanged = true
+	-- Update the Macro
 	else
 		vmSetMacro(self)
 	end
@@ -878,33 +939,33 @@ end)
 
 -- Setup the Options Frame
 -------------------------------------------------
-vmMain.scrollFrame = CreateFrame("ScrollFrame", "ValorMountScroll", vmMain, "UIPanelScrollFrameTemplate")
-vmMain.scrollChild = CreateFrame("Frame", nil, vmMain.scrollFrame)
-vmMain.scrollUpButton = _G["ValorMountScrollScrollBarScrollUpButton"]
-vmMain.scrollUpButton:ClearAllPoints()
-vmMain.scrollUpButton:SetPoint("TOPRIGHT", vmMain.scrollFrame, "TOPRIGHT", -8, 6)
-vmMain.scrollDownButton = _G["ValorMountScrollScrollBarScrollDownButton"]
-vmMain.scrollDownButton:ClearAllPoints()
-vmMain.scrollDownButton:SetPoint("BOTTOMRIGHT", vmMain.scrollFrame, "BOTTOMRIGHT", -8, -6)
-vmMain.scrollBar = _G["ValorMountScrollScrollBar"]
-vmMain.scrollBar:ClearAllPoints()
-vmMain.scrollBar:SetPoint("TOP", vmMain.scrollUpButton, "BOTTOM", 0, 0)
-vmMain.scrollBar:SetPoint("BOTTOM", vmMain.scrollDownButton, "TOP", 0, 0)
-vmMain.scrollFrame:SetScrollChild(vmMain.scrollChild)
-vmMain.scrollFrame:SetPoint("TOPLEFT", vmMain, "TOPLEFT", 0, -16)
-vmMain.scrollFrame:SetPoint("BOTTOMRIGHT", vmMain, "BOTTOMRIGHT", 0, 16)
-vmMain.scrollChild:SetSize(600, 1)
-vmMain.contentFrame = CreateFrame("Frame", nil, vmMain.scrollChild)
-vmMain.contentFrame:SetAllPoints(vmMain.scrollChild)
-vmMain.contentFrame.vmFrames = {}
-vmMain.contentFrame.vmMounts = {}
-vmMain.refresh = function (self)
+vmPrefs.scrollFrame = CreateFrame("ScrollFrame", "ValorMountScroll", vmPrefs, "UIPanelScrollFrameTemplate")
+vmPrefs.scrollChild = CreateFrame("Frame", nil, vmPrefs.scrollFrame)
+vmPrefs.scrollUpButton = _G["ValorMountScrollScrollBarScrollUpButton"]
+vmPrefs.scrollUpButton:ClearAllPoints()
+vmPrefs.scrollUpButton:SetPoint("TOPRIGHT", vmPrefs.scrollFrame, "TOPRIGHT", -8, 6)
+vmPrefs.scrollDownButton = _G["ValorMountScrollScrollBarScrollDownButton"]
+vmPrefs.scrollDownButton:ClearAllPoints()
+vmPrefs.scrollDownButton:SetPoint("BOTTOMRIGHT", vmPrefs.scrollFrame, "BOTTOMRIGHT", -8, -6)
+vmPrefs.scrollBar = _G["ValorMountScrollScrollBar"]
+vmPrefs.scrollBar:ClearAllPoints()
+vmPrefs.scrollBar:SetPoint("TOP", vmPrefs.scrollUpButton, "BOTTOM", 0, 0)
+vmPrefs.scrollBar:SetPoint("BOTTOM", vmPrefs.scrollDownButton, "TOP", 0, 0)
+vmPrefs.scrollFrame:SetScrollChild(vmPrefs.scrollChild)
+vmPrefs.scrollFrame:SetPoint("TOPLEFT", vmPrefs, "TOPLEFT", 0, -16)
+vmPrefs.scrollFrame:SetPoint("BOTTOMRIGHT", vmPrefs, "BOTTOMRIGHT", 0, 16)
+vmPrefs.scrollChild:SetSize(600, 1)
+vmPrefs.contentFrame = CreateFrame("Frame", nil, vmPrefs.scrollChild)
+vmPrefs.contentFrame:SetAllPoints(vmPrefs.scrollChild)
+vmPrefs.contentFrame.vmFrames = {}
+vmPrefs.contentFrame.vmMounts = {}
+vmPrefs.refresh = function (self)
 	createMountOptions(self)
 	self:SetScript("OnShow", createMountOptions)
 	self.refresh = function () return end
 end
-vmMain.name = "ValorMount"
-_G.InterfaceOptions_AddCategory(vmMain)
+vmPrefs.name = "ValorMount"
+_G.InterfaceOptions_AddCategory(vmPrefs)
 
 
 
@@ -915,8 +976,8 @@ _G["BINDING_HEADER_VALORMOUNT"] = "ValorMount"
 _G.SLASH_VALORMOUNT1 = "/valormount"
 _G.SLASH_VALORMOUNT2 = "/vm"
 _G.SlashCmdList.VALORMOUNT = function()
-	if not vmMain.contentFrame.fromTop then
-		_G.InterfaceOptionsFrame_OpenToCategory(vmMain)
+	if not vmPrefs.contentFrame.fromTop then
+		_G.InterfaceOptionsFrame_OpenToCategory(vmPrefs)
 	end
-	_G.InterfaceOptionsFrame_OpenToCategory(vmMain)
+	_G.InterfaceOptionsFrame_OpenToCategory(vmPrefs)
 end
