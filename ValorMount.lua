@@ -758,7 +758,7 @@ do
 				local row = UIDropDownMenu_CreateInfo()
 				row.text = dropChoices.zone[i]
 				row.value = i
-				row.func = function (self) vmSetZoneInfo(self.value) end
+				row.func = function (self) vmSetZoneInfo(self.value) f.dropDownFlying.updateDropDown() end
 				UIDropDownMenu_AddButton(row)
 			end
 		end
