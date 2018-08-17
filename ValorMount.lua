@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.0"
+local vmVersion = "2.1"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -250,10 +250,15 @@ do
 		if vmMain.zoneChanged then
 			vmMain.zoneInfo.instanceName, vmMain.zoneInfo.instanceId = vmGetInstanceInfo()
 			vmMain.zoneInfo.mapId, vmMain.zoneInfo.areaText = GetBestMapForUnit("player"), GetSubZoneText()
-			local mapInfo = GetMapInfo(vmMain.zoneInfo.mapId)
-			vmMain.zoneInfo.mapName = mapInfo.name
 			vmMain.zoneInfo.zoneHard = hardOverrides[vmMain.zoneInfo.instanceId] or false
 			vmMain.zoneInfo.zoneSoft = 1
+			if vmMain.zoneInfo.mapId then
+				local mapInfo = GetMapInfo(vmMain.zoneInfo.mapId)
+				vmMain.zoneInfo.mapName = mapInfo.name
+			else
+				vmMain.zoneInfo.mapId = 0
+				vmMain.zoneInfo.mapName = ""
+			end
 		end
 
 		-- Only loop softOverrides if necessary.

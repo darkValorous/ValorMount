@@ -1,0 +1,5 @@
+package-as: ValorMount
+enable-nolib-creation: no
+
+ignore:
+    - README.md
