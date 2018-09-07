@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.1"
+local vmVersion = "2.2"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
