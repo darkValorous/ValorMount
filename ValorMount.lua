@@ -19,8 +19,8 @@ local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo
 	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText
 local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, IsMounted, UnitAura, GetBindingKey
 	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.IsMounted, _G.UnitAura, _G.GetBindingKey
-local IsPlayerSpell, IsSubmerged, SecureCmdOptionParse, UnitAffectingCombat, SetOverrideBindingClick, ClearOverrideBindings
-	= _G.IsPlayerSpell, _G.IsSubmerged, _G.SecureCmdOptionParse, _G.UnitAffectingCombat, _G.SetOverrideBindingClick, _G.ClearOverrideBindings
+local IsPlayerSpell, IsSubmerged, UnitAffectingCombat, UnitInVehicle, SetOverrideBindingClick, ClearOverrideBindings
+	= _G.IsPlayerSpell, _G.IsSubmerged, _G.UnitAffectingCombat, _G.UnitInVehicle, _G.SetOverrideBindingClick, _G.ClearOverrideBindings
 local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBestMapForUnit
 	= _G.C_MountJournal.GetMountInfoExtraByID, _G.C_MountJournal.GetNumDisplayedMounts, _G.C_MountJournal.GetDisplayedMountInfo, _G.C_Map.GetBestMapForUnit
 local GetMapInfo, GetMountIDs, GetMountInfoByID
@@ -374,6 +374,7 @@ do
 		topPriority = 1
 		wipe(tempOne)
 		local mountDb = ValorMountLocal.mountDb
+		local isSubmerged = IsSubmerged()
 
 		-- Vashj'ir Override - Always bet on the Seahorse
 		if vmVashjir() and IsPlayerSpell(VASHJIR_SEAHORSE) then
@@ -393,7 +394,7 @@ do
 		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm.id) then
 			-- No Riding Skill: Priority: (Travel > Heirloom) in Water, (Travel < Heirloom) on Land
 			if not canRide then
-				addToPool((IsSubmerged() and IsPlayerSpell(spellMap.AquaticForm.id)) and 15 or 5, spellMap.TravelForm.id)
+				addToPool((isSubmerged and IsPlayerSpell(spellMap.AquaticForm.id)) and 15 or 5, spellMap.TravelForm.id)
 			-- DruidFormRandom: Treat Flight Form as a Favorite
 			elseif canFly and IsPlayerSpell(spellMap.FlightForm.id) and ValorMountLocal.DruidFormRandom then
 				addToPool(FLYING, spellMap.TravelForm.id)
@@ -412,10 +413,10 @@ do
 			if isUsable then
 				local myPriority = mountPriority[mountType] or 0
 				-- On Land - Deprioritize Aquatic Mounts
-				if not IsSubmerged() and myPriority == AQUATIC then
+				if not isSubmerged and myPriority == AQUATIC then
 					myPriority = 0
 				-- Water Strider - +5 Priority When Swimming: This > Ground, This < Aquatic
-				elseif mountType == WATER_STRIDER and IsSubmerged() then
+				elseif mountType == WATER_STRIDER and isSubmerged then
 					myPriority = myPriority + 5
 				-- Not Flying - Lower Priority for Flying Mounts
 				elseif not canFly and myPriority == FLYING then
@@ -443,7 +444,7 @@ local vmSetMacro
 do
 	local wasMoonkin = false
 	local macroFail = "/run C_MountJournal.SummonByID(0)\n"
-	local mountCond = "[outdoors,nocombat,nomounted,novehicleui]"
+	local mountCond = "[outdoors,nomounted,novehicleui]"
 	local mountDismount = "/leavevehicle [canexitvehicle]\n/dismount [mounted]\n"
 
 	local function vmMakeMacro()
@@ -455,13 +456,16 @@ do
 
 		-- Prepare
 		vmSetZoneInfo()
-		local inTravelForm, spellId = false, false
+		local inTravelForm, spellId, canMount = false, false, false
 		local macroPre, macroPost, macroText = "", "", ""
 		local macroCond, macroExit = mountCond, mountDismount
 		local canRide, inVashjir = vmCanRide(), vmVashjir()
 		local canFly = canRide and vmCanFly() or false
-		local inCombat = UnitAffectingCombat("player")
-		local canMount = SecureCmdOptionParse(mountCond) or false
+		local inCombat, inVehicle, isMoving = UnitAffectingCombat("player"), UnitInVehicle("player"), IsPlayerMoving()
+		local isMounted, isFalling, isOutdoors, isSubmerged = IsMounted(), IsFalling(), IsOutdoors(), IsSubmerged()
+		if not inCombat and not inVehicle and not isMoving and not isMounted and not isFalling and isOutdoors then
+			canMount = true
+		end
 
 		-- Druid & Travel Form
 		-- 5487 = Bear, 768 = Cat, 783 = Travel, 24858 = Moonkin, 114282 = Tree, 210053 = Stag
@@ -483,9 +487,9 @@ do
 				end
 			end
 			-- Druid Travel Form: If in Combat, Moving, Falling or DruidFormAlways is enabled
-			if not inTravelForm and not IsMounted()
+			if not inTravelForm and not isMounted
 			   and ((ValorMountLocal.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm.id))
-			   or (IsOutdoors() and (inCombat or IsPlayerMoving() or (canFly and IsFalling())))) then
+			   or (isOutdoors and (inCombat or isMoving or (canFly and isFalling)))) then
 				macroCond = "[outdoors,nomounted,novehicleui]"
 				spellId = spellMap.TravelForm.id
 			end
@@ -505,15 +509,15 @@ do
 				end
 			end
 			-- Cast Ghost Wolf
-			if not IsSubmerged() and not IsMounted() and not inTravelForm and (not canMount or inCombat or IsPlayerMoving()) then
+			if not isSubmerged and not isMounted and not inTravelForm and (not canMount or inCombat or isMoving) then
 				macroCond = "[nomounted,novehicleui]"
 				spellId = spellMap.GhostWolf.id
 			end
 		end
 
 		-- MonkZenFlight
-		if playerClass == "MONK" and ValorMountLocal.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight.id) and canFly and IsOutdoors() and not IsSubmerged() then
-			if not canMount or IsPlayerMoving() or IsFalling() then
+		if playerClass == "MONK" and ValorMountLocal.MonkZenFlight and IsPlayerSpell(spellMap.ZenFlight.id) and canFly and isOutdoors and not isSubmerged then
+			if not canMount or isMoving or isFalling then
 				spellId = spellMap.ZenFlight.id
 			end
 		end
@@ -521,11 +525,11 @@ do
 		-- WorgenHuman: Worgen Two Forms before Mounting
 		if playerRace == "Worgen" and ValorMountLocal.WorgenHuman and _G.ValorAddons.ValorWorgen and _G.ValorWorgenForm
 		   and canMount and spellId ~= spellMap.RunningWild.id and spellId ~= spellMap.TravelForm.id then
-			macroPre = format("/cast [nocombat,nomounted,novehicleui,noform] %s\n", spellMap.TwoForms.name)
+			macroPre = format("/cast [nomounted,novehicleui,noform] %s\n", spellMap.TwoForms.name)
 		end
 
 		-- Select a Mount from Favorites
-		if not spellId and canMount and not IsPlayerMoving() and not IsFalling() and not inCombat and not inTravelForm then
+		if not spellId and canMount and not inTravelForm then
 			spellId = vmGetMount(canRide, canFly)
 			-- Could not find a favorite
 			if not spellId then
@@ -542,10 +546,10 @@ do
 		return macroPre .. macroText .. macroExit .. macroPost
 	end
 
-	function vmSetMacro(bFrame)
+	function vmSetMacro(self)
 		if InCombatLockdown() then return end
 		local macroString = _G.strtrim(vmMakeMacro() or macroFail)
-		bFrame:SetAttribute("macrotext", macroString)
+		self:SetAttribute("macrotext", macroString)
 	end
 end
 
@@ -937,7 +941,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 
 	-- Update the Macro
 	else
-		vmSetMacro(self)
+		vmSetMacro(self, event)
 	end
 end)
 
