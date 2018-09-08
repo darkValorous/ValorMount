@@ -2,7 +2,7 @@
 ## Title: ValorMount
 ## Notes: A fairly simple mount manager.
 ## Author: darkValorous
-## Version: 2.2
+## Version: 2.3
 ## SavedVariables: ValorMountGlobal
 ## SavedVariablesPerCharacter: ValorMountLocal
 ValorMount.lua

@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.2"
+local vmVersion = "2.3"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -19,8 +19,8 @@ local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo
 	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText
 local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, IsMounted, UnitAura, GetBindingKey
 	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.IsMounted, _G.UnitAura, _G.GetBindingKey
-local IsPlayerSpell, IsSubmerged, UnitAffectingCombat, UnitInVehicle, SetOverrideBindingClick, ClearOverrideBindings
-	= _G.IsPlayerSpell, _G.IsSubmerged, _G.UnitAffectingCombat, _G.UnitInVehicle, _G.SetOverrideBindingClick, _G.ClearOverrideBindings
+local IsPlayerSpell, IsSubmerged, UnitAffectingCombat, UnitInVehicle, SetOverrideBindingClick, ClearOverrideBindings, GetTime
+	= _G.IsPlayerSpell, _G.IsSubmerged, _G.UnitAffectingCombat, _G.UnitInVehicle, _G.SetOverrideBindingClick, _G.ClearOverrideBindings, _G.GetTime
 local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBestMapForUnit
 	= _G.C_MountJournal.GetMountInfoExtraByID, _G.C_MountJournal.GetNumDisplayedMounts, _G.C_MountJournal.GetDisplayedMountInfo, _G.C_Map.GetBestMapForUnit
 local GetMapInfo, GetMountIDs, GetMountInfoByID
@@ -55,6 +55,7 @@ do
 		Local = {
 			mountDb = {},
 			Enabled = true,
+			DetectUnderwater = false,
 			MonkZenFlight = true,
 			ShamanGhostWolf = true,
 			WorgenMount = false,	WorgenHuman = true,
@@ -291,15 +292,31 @@ do
 	end
 end
 
+-- Quick riding skill detection
 local function vmCanRide()
 	-- 33388 Apprentice, 33391 Journeyman, 34090 Expert, 34091 Artisan, 90265 Master
 	return IsPlayerSpell(33388) or IsPlayerSpell(33391) or IsPlayerSpell(34090) or IsPlayerSpell(34091) or IsPlayerSpell(90265)
 end
 
+-- 201 = Kelp'thar Forest, 203 = Vashj'ir, 204 = Abyssal Depths, 205 = Shimmering Expanse
+-- If Underwater Detection is on, this will return false if you jump out of the water and mount immediately
+-- Otherwise it will return true while in the water in the 4 Vashj'ir zones
 local function vmVashjir()
-	-- 201 = Kelp'thar Forest, 203 = Vashj'ir, 204 = Abyssal Depths, 205 = Shimmering Expanse
 	if not IsSubmerged() then return false end
+	if ValorMountLocal.DetectUnderwater and GetTime() - vmMain.surfaceDetect < 1 then return false end
 	return vmMain.zoneInfo.mapId == 204 or vmMain.zoneInfo.mapId == 201 or vmMain.zoneInfo.mapId == 205 or vmMain.zoneInfo.mapId == 203
+end
+
+-- vmFloating() - Blizzard should either add IsFloating() or fix IsSubmerged()
+-- false if Breath Timer exists and is lowering, else true
+-------------------------------------------------
+local vmFloating
+do
+	local GetMirrorTimerInfo = _G.GetMirrorTimerInfo
+	function vmFloating(isSubmerged)
+		local timerName, _, _, timerInc = GetMirrorTimerInfo(2)
+		return isSubmerged and not (timerName == "BREATH") or (timerName == "BREATH" and timerInc > -1)
+	end
 end
 
 -- Flying Area Detection
@@ -375,6 +392,7 @@ do
 		wipe(tempOne)
 		local mountDb = ValorMountLocal.mountDb
 		local isSubmerged = IsSubmerged()
+		local isFloating = isSubmerged
 
 		-- Vashj'ir Override - Always bet on the Seahorse
 		if vmVashjir() and IsPlayerSpell(VASHJIR_SEAHORSE) then
@@ -406,18 +424,30 @@ do
 			addToPool(GROUND, spellMap.RunningWild.id)
 		end
 
+		-- Underwater Detection is ON
+		if ValorMountLocal.DetectUnderwater then
+			if playerRace == "Scourge" then
+				isFloating = isSubmerged and GetTime() - vmMain.surfaceDetect < 1
+			else
+				isFloating = vmFloating(isSubmerged)
+			end
+		end
+
 		-- Favorites
 		for i = 1, #mountDb do
 			local mountId, _, mountType, spellId = unpack(mountDb[i])
 			local _, _, _, _, isUsable = GetMountInfoByID(mountId)
 			if isUsable then
 				local myPriority = mountPriority[mountType] or 0
-				-- On Land - Deprioritize Aquatic Mounts
-				if not isSubmerged and myPriority == AQUATIC then
-					myPriority = 0
-				-- Water Strider - +5 Priority When Swimming: This > Ground, This < Aquatic
-				elseif mountType == WATER_STRIDER and isSubmerged then
-					myPriority = myPriority + 5
+				-- Aquatic Mount Priorities,
+				if myPriority == AQUATIC then
+					myPriority =
+						(ValorMountLocal.DetectUnderwater and isSubmerged and not isFloating and myPriority + AQUATIC) -- Detection ON, In Water, Not Floating, Double Priority (>ALL)
+						or (not ValorMountLocal.DetectUnderwater and isSubmerged and AQUATIC)						   -- Detection OFF, In Water, Maintain Priority (>GROUND and <FLY)
+						or 0																					 	   -- On land, 0
+				-- Water Strider - +5 Priority When Swimming: This > Ground, This < Aquatic, -5 Priority On Land
+				elseif mountType == WATER_STRIDER then
+					myPriority = myPriority + (isSubmerged and 5 or -5)
 				-- Not Flying - Lower Priority for Flying Mounts
 				elseif not canFly and myPriority == FLYING then
 					myPriority = ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 1 and GROUND or (HEIRLOOM + 5)
@@ -573,6 +603,10 @@ do
 		Enabled = {
 			name = "ValorMount is Enabled",
 			desc = "If disabled the keybind maps to the |cFF69CCF0[Summon Random Favorite Mount]|r button.",
+		},
+		DetectUnderwater = {
+			name = "Underwater & Surface Detection",
+			desc = "Attempt to detect if you are underwater to prioritize mounts accordingly. Underwater breathing interferes with detection.",
 		},
 		WorgenMount = {
 			name = "|cFFC79C6EWorgen:|r Running Wild as Favorite",
@@ -883,6 +917,7 @@ vmMain:RegisterEvent("PLAYER_LOGIN")
 vmMain:SetScript("OnEvent", function(self, event)
 	if event == "PLAYER_LOGIN" then
 		self.zoneChanged = true
+		self.surfaceDetect = 0
 		if not _G.MountJournalSummonRandomFavoriteButton then _G.CollectionsJournal_LoadUI() end
 
 		-- Load Config Defaults if Necessary
@@ -917,6 +952,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 		end)
 
 		-- Register for Events
+		self:RegisterEvent("MOUNT_JOURNAL_USABILITY_CHANGED")
 		self:RegisterEvent("PLAYER_ENTERING_WORLD")
 		self:RegisterEvent("PLAYER_REGEN_DISABLED")
 		self:RegisterEvent("PLAYER_REGEN_ENABLED")
@@ -938,6 +974,12 @@ vmMain:SetScript("OnEvent", function(self, event)
 	-- Wandered into a new zone
 	elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
 		self.zoneChanged = true
+
+	-- Backup Surface Floating Detection (for Undead and Vashj'ir)
+	elseif event == "MOUNT_JOURNAL_USABILITY_CHANGED" then
+		if ValorMountLocal.DetectUnderwater and not IsSubmerged() then
+			self.surfaceDetect = GetTime()
+		end
 
 	-- Update the Macro
 	else
