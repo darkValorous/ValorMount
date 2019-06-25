@@ -13,6 +13,8 @@ _G.ValorAddons[addonName] = true
 -- Locals
 -------------------------------------------------
 local tempOne = {}
+local journalRead = false
+local journalReading = false
 local tinsert, tremove, sort, wipe, pairs, random, select, format, unpack
 	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select, _G.format, _G.unpack
 local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText
@@ -55,7 +57,7 @@ do
 		Local = {
 			mountDb = {},
 			Enabled = true,
-			DetectUnderwater = false,
+			DetectUnderwater = true,
 			MonkZenFlight = true,
 			ShamanGhostWolf = true,
 			WorgenMount = false,	WorgenHuman = true,
@@ -124,6 +126,7 @@ do
 		if isFavorite and isCollected and not hideOnChar then
 			local _, _, _, _, mountType = GetMountInfoExtraByID(mountId)
 			vmMountDb(isFavorite, mountId, mountName, mountType, spellId)
+			journalRead = true -- Found at least one favorite mount, so MountJournal was ready
 		end
 	end
 
@@ -158,6 +161,7 @@ end
 --------------------------------------------------------------------------------------------------
 local function vmLocalFavs()
 	if not ValorMountGlobal.localFavs then return end
+	if journalReading then return end
 	local filterCollected, filterNotCollected, filterUnUsable
 		= _G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE
 	local GetCollectedFilterSetting, SetCollectedFilterSetting, SetAllSourceFilters, SetIsFavorite
@@ -189,20 +193,49 @@ local function vmLocalFavs()
 
 	-- Flip through the Journal
 	local i = 0
+	journalReading = true
 	while i < GetNumDisplayedMounts() do
 		i = i + 1
 		local _, _, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
 		local savedFavorite = (not hideOnChar and isCollected and tempOne[mountId]) or false
 		if savedFavorite ~= isFavorite then
 			SetIsFavorite(i, savedFavorite)
-			i = savedFavorite and i or i - 1
+			if not journalRead then
+				local _, _, _, _, _, _, isFavoriteNow, _, _, _, _, _ = GetDisplayedMountInfo(i)
+				if savedFavorite ~= isFavoriteNow then
+					journalRead = false
+					break
+				else
+					journalRead = true
+				end
+			end
+			i = 0 -- Start from the top
 		end
 	end
+	journalReading = false
 
 	-- Restore Main Filters
 	if not setCollected then SetCollectedFilterSetting(filterCollected, false) end
 	if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, false) end
 	if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, false) end
+end
+
+-------------------------------------------------
+-- InitDb()
+-- MountJournal is not ready on PLAYER_LOGIN, except on reloadui
+-- This tries to make sure everything is in sync.
+-------------------------------------------------
+local function vmInitDb()
+	if not journalRead then
+		-- Set Local Favorites, DB Already Built or New Character
+		if ValorMountGlobal.localFavs then
+			ValorMountLocal.mountDb = ValorMountLocal.mountDb or {}
+			vmLocalFavs()
+		-- Refresh the DB
+		else
+			vmBuildDb(true)
+		end
+	end
 end
 
 -------------------------------------------------
@@ -218,10 +251,14 @@ end
 
 local vmSetZoneInfo
 do
-	-- 191645 = WOD Pathfinder, 233368 = Legion Pathfinder
+	-- 191645 = WOD Pathfinder
+	-- 233368 = Legion Pathfinder
+	-- 278833 = BFA Pathfinder
 	local hardOverrides = {
 		-- Pathfinder
-		[1220] = 233368,
+		[1220] = 233368, -- Legion
+		[1642] = 278833, -- BFA: Zandalar
+		[1643] = 278833, -- BFA: Kul Tiras
 		[1116] = 191645, [1464] = 191645,	-- Draenor and Tanaan
 		[1158] = 191645, [1331] = 191645,	-- Alliance Garrison
 		[1159] = 191645, [1160] = 191645,
@@ -361,8 +398,8 @@ local vmGetMount
 do
 	local topPriority = 1
 	local HEIRLOOM, GROUND, AQUATIC, FLYING = 10, 20, 30, 40
-	local WATER_STRIDER, VASHJIR_SEAHORSE, HEIRLOOM_ALLIANCE, HEIRLOOM_HORDE
-		= 269, 75207, 179245, 179244
+	local VASHJIR_SEAHORSE, HEIRLOOM_ALLIANCE, HEIRLOOM_HORDE
+		= 75207, 179245, 179244
 	local mountPriority = {
 		[230] = GROUND,		-- Ground Mount
 		[269] = GROUND,		--	Water Striders
@@ -445,9 +482,6 @@ do
 						(ValorMountLocal.DetectUnderwater and isSubmerged and not isFloating and myPriority + AQUATIC) -- Detection ON, In Water, Not Floating, Double Priority (>ALL)
 						or (not ValorMountLocal.DetectUnderwater and isSubmerged and AQUATIC)						   -- Detection OFF, In Water, Maintain Priority (>GROUND and <FLY)
 						or 0																					 	   -- On land, 0
-				-- Water Strider - +5 Priority When Swimming: This > Ground, This < Aquatic, -5 Priority On Land
-				elseif mountType == WATER_STRIDER then
-					myPriority = myPriority + (isSubmerged and 5 or -5)
 				-- Not Flying - Lower Priority for Flying Mounts
 				elseif not canFly and myPriority == FLYING then
 					myPriority = ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 1 and GROUND or (HEIRLOOM + 5)
@@ -578,6 +612,7 @@ do
 
 	function vmSetMacro(self)
 		if InCombatLockdown() then return end
+		vmInitDb()
 		local macroString = _G.strtrim(vmMakeMacro() or macroFail)
 		self:SetAttribute("macrotext", macroString)
 	end
@@ -842,6 +877,9 @@ do
 	-- Main Function - Mount Frames & Refresh Zone
 	-------------------------------------------------
 	function createMountOptions(parentFrame)
+		-- Fix for GetMountInfoByID always showing false for isFavorite on login.
+		vmInitDb()
+
 		-- Prepare
 		local mainFrame = parentFrame.contentFrame
 		local f = mainFrame.vmFrames
@@ -926,17 +964,9 @@ vmMain:SetScript("OnEvent", function(self, event)
 			vmSetDefaults()
 		end
 
-		-- Set Local Favorites, DB Already Built or New Character
-		if ValorMountGlobal.localFavs then
-			ValorMountLocal.mountDb = ValorMountLocal.mountDb or {}
-			vmLocalFavs()
-		-- Refresh the DB
-		else
-			vmBuildDb(true)
-		end
-
 		-- Hook SetIsFavorite to keep track
 		_G.hooksecurefunc(_G.C_MountJournal, "SetIsFavorite", function()
+			if journalReading then return end
 			for i = 1, GetNumDisplayedMounts() do
 				local mountName, spellId, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
 				isFavorite = (isCollected and not hideOnChar) and isFavorite or false
@@ -963,6 +993,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
 		self:SetScript("PreClick", vmSetMacro)
 		vmBindings(self)
+		vmInitDb()
 
 	elseif event == "PLAYER_LEVEL_UP" then
 		playerLevel = playerLevel + 1
@@ -977,6 +1008,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 
 	-- Backup Surface Floating Detection (for Undead and Vashj'ir)
 	elseif event == "MOUNT_JOURNAL_USABILITY_CHANGED" then
+		vmInitDb()
 		if ValorMountLocal.DetectUnderwater and not IsSubmerged() then
 			self.surfaceDetect = GetTime()
 		end

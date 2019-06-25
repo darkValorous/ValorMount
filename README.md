@@ -26,7 +26,6 @@ ValorMount is intended to be a fairly simple mount manager based largely on my o
 - If Enabled (per Character), this attempts to determine if you are actually underwater or floating at the surface. This is only useful if you have Aquatic mounts as Favorites.
 - When Enabled and Underwater, Favorited Aquatic Mounts are prioritized above all other mounts.
 - When Disabled, Favorited Aquatic Mounts are only prioritized above ground mounts, flying remains the highest priority.
-- Favorited Water Striders are prioritized above ground mounts while in water, but deprioritized on land.
 - Jumping at the surface in Vashj'ir will trigger summoning for the water surface instead.
 - Note: Underwater breathing (except Vashj'ir) will break this detection and consider you to always be at the surface!
 - Note for Undead players: Due to the racial, this feature will instead always consider you to be underwater - however when you jump at the surface and mount immediately, it assumes you are at the surface.
