@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.5"
+local vmVersion = "2.6"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -258,6 +258,7 @@ do
 		[1220] = 233368, -- Legion
 		[1642] = 278833, -- BFA: Zandalar
 		[1643] = 278833, -- BFA: Kul Tiras
+		[1718] = 278833, -- BFA: Nazjatar
 		[1116] = 191645, [1464] = 191645,	-- Draenor and Tanaan
 		[1158] = 191645, [1331] = 191645,	-- Alliance Garrison
 		[1159] = 191645, [1160] = 191645,
@@ -272,6 +273,7 @@ do
 		[1519] = -1,	-- The Fel Hammer (Demon Hunter Class Hall)
 		[1469] = -1,	-- The Heart of Azeroth (Shaman Class Hall)
 		[1514] = -1,	-- The Wandering Isle (Monk Class Hall)
+		[1718] = -1,	-- Nazjatar
 	}
 
 	local function vmGetInstanceInfo()
