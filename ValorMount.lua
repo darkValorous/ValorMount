@@ -6,15 +6,18 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.3"
+local vmVersion = "2.4"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
 -- Locals
 -------------------------------------------------
 local tempOne = {}
+local journalDone = false
 local journalRead = false
-local journalReading = false
+local setCollected = false
+local setNotCollected = false
+local setUnUsable = false
 local tinsert, tremove, sort, wipe, pairs, random, select, format, unpack
 	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select, _G.format, _G.unpack
 local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText
@@ -126,7 +129,7 @@ do
 		if isFavorite and isCollected and not hideOnChar then
 			local _, _, _, _, mountType = GetMountInfoExtraByID(mountId)
 			vmMountDb(isFavorite, mountId, mountName, mountType, spellId)
-			journalRead = true -- Found at least one favorite mount, so MountJournal was ready
+			journalDone = true -- Found at least one favorite mount, so MountJournal was ready
 		end
 	end
 
@@ -160,30 +163,34 @@ end
 -- Restore Character-Specific Favorites at Login
 --------------------------------------------------------------------------------------------------
 local function vmLocalFavs()
-	if not ValorMountGlobal.localFavs then return end
-	if journalReading then return end
+	if not ValorMountGlobal.localFavs or journalDone then return end
 	local filterCollected, filterNotCollected, filterUnUsable
 		= _G.LE_MOUNT_JOURNAL_FILTER_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_NOT_COLLECTED, _G.LE_MOUNT_JOURNAL_FILTER_UNUSABLE
 	local GetCollectedFilterSetting, SetCollectedFilterSetting, SetAllSourceFilters, SetIsFavorite
 		= _G.C_MountJournal.GetCollectedFilterSetting, _G.C_MountJournal.SetCollectedFilterSetting, _G.C_MountJournal.SetAllSourceFilters, _G.C_MountJournal.SetIsFavorite
 
-	-- Incompatible AddOn Warning
-	if _G.IsAddOnLoaded("MountJournalEnhanced") then
-		local yellColor = _G.ChatTypeInfo.YELL
-		_G.DEFAULT_CHAT_FRAME:AddMessage("ValorMount Warning: Mount Journal Enhanced can interfere with Character-Specific Favorites due to its filters!",
-			yellColor.r, yellColor.g, yellColor.b, yellColor.id)
+	if not journalRead then
+		journalRead = true
+		vmMain:RegisterEvent("MOUNT_JOURNAL_SEARCH_UPDATED")
+
+		-- Incompatible AddOn Warning
+		if _G.IsAddOnLoaded("MountJournalEnhanced") then
+			local yellColor = _G.ChatTypeInfo.YELL
+			_G.DEFAULT_CHAT_FRAME:AddMessage("ValorMount Warning: Mount Journal Enhanced can interfere with Character-Specific Favorites due to its filters!",
+				yellColor.r, yellColor.g, yellColor.b, yellColor.id)
+		end
+
+		-- Keep Current Filters
+		setCollected = GetCollectedFilterSetting(filterCollected)
+		setNotCollected = GetCollectedFilterSetting(filterNotCollected)
+		setUnUsable = GetCollectedFilterSetting(filterUnUsable)
+
+		-- Set Filters to Show Everything
+		if not setCollected then SetCollectedFilterSetting(filterCollected, true) end
+		if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, true) end
+		if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, true) end
+		SetAllSourceFilters(true)
 	end
-
-	-- Keep Current Filters
-	local setCollected = GetCollectedFilterSetting(filterCollected)
-	local setNotCollected = GetCollectedFilterSetting(filterNotCollected)
-	local setUnUsable = GetCollectedFilterSetting(filterUnUsable)
-
-	-- Set Filters to Show Everything
-	if not setCollected then SetCollectedFilterSetting(filterCollected, true) end
-	if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, true) end
-	if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, true) end
-	SetAllSourceFilters(true)
 
 	-- Load IDs from Favorites
 	wipe(tempOne)
@@ -193,28 +200,20 @@ local function vmLocalFavs()
 
 	-- Flip through the Journal
 	local i = 0
-	journalReading = true
 	while i < GetNumDisplayedMounts() do
 		i = i + 1
 		local _, _, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
 		local savedFavorite = (not hideOnChar and isCollected and tempOne[mountId]) or false
 		if savedFavorite ~= isFavorite then
-			SetIsFavorite(i, savedFavorite)
-			if not journalRead then
-				local _, _, _, _, _, _, isFavoriteNow, _, _, _, _, _ = GetDisplayedMountInfo(i)
-				if savedFavorite ~= isFavoriteNow then
-					journalRead = false
-					break
-				else
-					journalRead = true
-				end
-			end
-			i = 0 -- Start from the top
+			return SetIsFavorite(i, savedFavorite)
 		end
 	end
-	journalReading = false
 
-	-- Restore Main Filters
+	-- Complete
+	journalRead = false
+	journalDone = true
+	MountJournal_FullUpdate(MountJournal)
+	vmMain:UnregisterEvent("MOUNT_JOURNAL_SEARCH_UPDATED")
 	if not setCollected then SetCollectedFilterSetting(filterCollected, false) end
 	if not setNotCollected then SetCollectedFilterSetting(filterNotCollected, false) end
 	if not setUnUsable then SetCollectedFilterSetting(filterUnUsable, false) end
@@ -226,7 +225,7 @@ end
 -- This tries to make sure everything is in sync.
 -------------------------------------------------
 local function vmInitDb()
-	if not journalRead then
+	if not journalDone then
 		-- Set Local Favorites, DB Already Built or New Character
 		if ValorMountGlobal.localFavs then
 			ValorMountLocal.mountDb = ValorMountLocal.mountDb or {}
@@ -877,7 +876,6 @@ do
 	-- Main Function - Mount Frames & Refresh Zone
 	-------------------------------------------------
 	function createMountOptions(parentFrame)
-		-- Fix for GetMountInfoByID always showing false for isFavorite on login.
 		vmInitDb()
 
 		-- Prepare
@@ -966,7 +964,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 
 		-- Hook SetIsFavorite to keep track
 		_G.hooksecurefunc(_G.C_MountJournal, "SetIsFavorite", function()
-			if journalReading then return end
+			if journalRead then return end
 			for i = 1, GetNumDisplayedMounts() do
 				local mountName, spellId, _, _, _, _, isFavorite, _, _, hideOnChar, isCollected, mountId = GetDisplayedMountInfo(i)
 				isFavorite = (isCollected and not hideOnChar) and isFavorite or false
@@ -1005,6 +1003,11 @@ vmMain:SetScript("OnEvent", function(self, event)
 	-- Wandered into a new zone
 	elseif event == "ZONE_CHANGED_NEW_AREA" or event == "ZONE_CHANGED" or event == "ZONE_CHANGED_INDOORS" then
 		self.zoneChanged = true
+
+	elseif event == "MOUNT_JOURNAL_SEARCH_UPDATED" then
+		if journalRead then
+			vmLocalFavs()
+		end
 
 	-- Backup Surface Floating Detection (for Undead and Vashj'ir)
 	elseif event == "MOUNT_JOURNAL_USABILITY_CHANGED" then
