@@ -273,7 +273,6 @@ do
 		[1519] = -1,	-- The Fel Hammer (Demon Hunter Class Hall)
 		[1469] = -1,	-- The Heart of Azeroth (Shaman Class Hall)
 		[1514] = -1,	-- The Wandering Isle (Monk Class Hall)
-		[1718] = -1,	-- Nazjatar
 	}
 
 	local function vmGetInstanceInfo()
