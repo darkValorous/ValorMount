@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.7"
+local vmVersion = "2.8"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -39,12 +39,18 @@ local spellMap = {
 	ZenFlight = { id = 125883 },
 	FlightForm = { id = 276029 },
 	TravelForm = { id = 783 },
+    MountForm = { id = 210053 },
 	AquaticForm = { id = 276012 },
 	MoonkinForm = { id = 24858 },
 	RunningWild = { id = 87840 },
 	TwoForms = { id = 68996 },
 }
 for k in pairs(spellMap) do spellMap[k].name = GetSpellInfo(spellMap[k].id) end
+local mawMounts = {
+    312762, -- Mawsworn Soulhunter
+    344577, -- Bound Shadehound
+    344578, -- Corridor Creeper
+}
 
 -------------------------------------------------
 -- Option Defaults
@@ -63,8 +69,14 @@ do
 			DetectUnderwater = true,
 			MonkZenFlight = true,
 			ShamanGhostWolf = true,
-			WorgenMount = false,	WorgenHuman = true,
-			DruidMoonkin = true,	DruidFormRandom = false,	DruidFormAlways = false,
+
+			WorgenMount = false,
+            WorgenHuman = true,
+
+			DruidMoonkin = true,
+            DruidFormRandom = false,
+            DruidFormAlways = false,
+            DruidFormMount = false,
 		}
 	}
 
@@ -344,6 +356,11 @@ local function vmVashjir()
 	return vmMain.zoneInfo.mapId == 204 or vmMain.zoneInfo.mapId == 201 or vmMain.zoneInfo.mapId == 205 or vmMain.zoneInfo.mapId == 203
 end
 
+-- vmTheMaw() - Return true if in the Maw in Shadowlands.
+local function vmTheMaw()
+    return vmMain.zoneInfo.mapId == 1543
+end
+
 -- vmFloating() - Blizzard should either add IsFloating() or fix IsSubmerged()
 -- false if Breath Timer exists and is lowering, else true
 -------------------------------------------------
@@ -449,9 +466,15 @@ do
 		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm.id) then
 			-- No Riding Skill: Priority: (Travel > Heirloom) in Water, (Travel < Heirloom) on Land
 			if not canRide then
-				addToPool((isSubmerged and IsPlayerSpell(spellMap.AquaticForm.id)) and 15 or 5, spellMap.TravelForm.id)
+                -- Always Travel Form in water
+                if isSubmerged and IsPlayerSpell(spellMap.AquaticForm.id) then addToPool(15, spellMap.TravelForm.id)
+                -- Mount Form
+                elseif ValorMountLocal.DruidFormMount then addToPool(5, spellMap.MountForm.id)
+                -- Travel Form
+                else addToPool(5, spellMap.TravelForm.id)
+                end
 			-- DruidFormRandom: Treat Flight Form as a Favorite
-			elseif canFly and IsPlayerSpell(spellMap.FlightForm.id) and ValorMountLocal.DruidFormRandom then
+			elseif canFly and ValorMountLocal.DruidFormRandom then
 				addToPool(FLYING, spellMap.TravelForm.id)
 			end
 		end
@@ -471,27 +494,36 @@ do
 		end
 
 		-- Favorites
-		for i = 1, #mountDb do
-			local mountId, _, mountType, spellId = unpack(mountDb[i])
-			local _, _, _, _, isUsable = GetMountInfoByID(mountId)
-			if isUsable then
-				local myPriority = mountPriority[mountType] or 0
-				-- Aquatic Mount Priorities,
-				if myPriority == AQUATIC then
-					myPriority =
-						(ValorMountLocal.DetectUnderwater and isSubmerged and not isFloating and myPriority + AQUATIC) -- Detection ON, In Water, Not Floating, Double Priority (>ALL)
-						or (not ValorMountLocal.DetectUnderwater and isSubmerged and AQUATIC)						   -- Detection OFF, In Water, Maintain Priority (>GROUND and <FLY)
-						or 0																					 	   -- On land, 0
-				-- Not Flying - Lower Priority for Flying Mounts
-				elseif not canFly and myPriority == FLYING then
-					myPriority = ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 1 and GROUND or (HEIRLOOM + 5)
-				-- Flying Mount set to Ground Only
-				elseif canFly and myPriority == FLYING and ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 2 then
-					myPriority = GROUND
-				end
-				addToPool(myPriority, spellId)
-			end
-		end
+        if not vmTheMaw() then
+            for i = 1, #mountDb do
+                local mountId, _, mountType, spellId = unpack(mountDb[i])
+                local _, _, _, _, isUsable = GetMountInfoByID(mountId)
+                if isUsable then
+                    local myPriority = mountPriority[mountType] or 0
+                    -- Aquatic Mount Priorities,
+                    if myPriority == AQUATIC then
+                        myPriority =
+                            (ValorMountLocal.DetectUnderwater and isSubmerged and not isFloating and myPriority + AQUATIC) -- Detection ON, In Water, Not Floating, Double Priority (>ALL)
+                            or (not ValorMountLocal.DetectUnderwater and isSubmerged and AQUATIC)						   -- Detection OFF, In Water, Maintain Priority (>GROUND and <FLY)
+                            or 0																					 	   -- On land, 0
+                    -- Not Flying - Lower Priority for Flying Mounts
+                    elseif not canFly and myPriority == FLYING then
+                        myPriority = ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 1 and GROUND or (HEIRLOOM + 5)
+                    -- Flying Mount set to Ground Only
+                    elseif canFly and myPriority == FLYING and ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 2 then
+                        myPriority = GROUND
+                    end
+                    addToPool(myPriority, spellId)
+                end
+            end
+        -- Shadowlands: The Maw
+        else
+            for k in pairs(mawMounts) do
+                if IsPlayerSpell(mawMounts[k]) then
+                    addToPool(GROUND, mawMounts[k])
+                end
+            end
+        end
 
 		-- *drum roll*
 		if #tempOne > 0 then
@@ -534,30 +566,45 @@ do
 		-- Druid & Travel Form
 		-- 5487 = Bear, 768 = Cat, 783 = Travel, 24858 = Moonkin, 114282 = Tree, 210053 = Stag
 		if playerClass == "DRUID" and IsPlayerSpell(spellMap.TravelForm.id) and not inVashjir then
+            local inMoonkinForm = false
+
 			for i = 1, GetNumShapeshiftForms() do
 				local _, fActive, _, fSpellId = GetShapeshiftFormInfo(i)
-				-- Special Conditions for Travel Form
-				if fSpellId == spellMap.TravelForm.id and fActive then
-					canMount = false
-					inTravelForm = true
-					macroExit = "/cancelform [form]\n"
-					-- DruidMoonkinForm: Shift back into Moonkin from Travel Form
-					if ValorMountLocal.DruidMoonkin and wasMoonkin then
-						macroPost = format("/cast [noform] %s\n", spellMap.MoonkinForm.name)
-					end
-				-- In Moonkin
-				elseif fSpellId == spellMap.MoonkinForm.id then
-					wasMoonkin = fActive
-				end
+
+                if fActive then
+                    if fSpellId == spellMap.TravelForm.id or fSpellId == spellMap.MountForm.id then
+                        inTravelForm = true
+                    elseif fSpellId == spellMap.MoonkinForm.id then
+                        inMoonkinForm = true
+                    end
+                end
 			end
-			-- Druid Travel Form: If in Combat, Moving, Falling or DruidFormAlways is enabled
-			if not inTravelForm and not isMounted
-			   and ((ValorMountLocal.DruidFormAlways and canFly and IsPlayerSpell(spellMap.FlightForm.id))
-			   or (isOutdoors and (inCombat or isMoving or (canFly and isFalling)))) then
-				macroCond = "[outdoors,nomounted,novehicleui]"
-				spellId = spellMap.TravelForm.id
-			end
-		end
+
+            -- Special Conditions for Travel Form
+            if inTravelForm then
+                canMount = false
+                macroExit = "/cancelform [form]\n"
+                -- DruidMoonkinForm: Shift back into Moonkin from Travel Form
+                if wasMoonkin and ValorMountLocal.DruidMoonkin then
+                    macroPost = format("/cast [noform] %s\n", spellMap.MoonkinForm.name)
+                end
+            else
+                wasMoonkin = inMoonkinForm
+            end
+
+            -- Druid Travel Form
+            if not inTravelForm and not isMounted and isOutdoors then
+                -- If Moving, Cannot Fly, DruidFormMount is enabled, Mount Form is learned, and not Submerged
+                if isMoving and not canFly and ValorMountLocal.DruidFormMount and IsPlayerSpell(spellMap.MountForm.id) and not IsSubmerged() then
+                    macroCond = "[outdoors,nomounted,novehicleui]"
+                    spellId = spellMap.MountForm.id
+                -- If In Combat, Moving, Can Fly and Falling or Always Use Flight Form enabled
+                elseif (inCombat or isMoving) or (canFly and (isFalling or ValorMountLocal.DruidFormAlways)) then
+                    macroCond = "[outdoors,nomounted,novehicleui]"
+                    spellId = spellMap.TravelForm.id
+                end
+            end
+        end
 
 		-- ShamanGhostWolf
 		if playerClass == "SHAMAN" and ValorMountLocal.ShamanGhostWolf and IsPlayerSpell(spellMap.GhostWolf.id) then
@@ -664,6 +711,12 @@ do
 			desc = "Adds |cFF69CCF0[Travel Form]|r as a favorite flying mount.",
 			class = "DRUID",
 		},
+        DruidFormMount = {
+			name = "|cFFFF7D0ADruid:|r Prefer Mount Form to Travel Form",
+			desc = "Whenever |cFF69CCF0[Travel Form]|r would be cast as a ground mount, use |cFF69CCF0[Mount Form]|r instead.",
+			class = "DRUID",
+            spell = spellMap.MountForm.id,
+        },
 		DruidFormAlways = {
 			name = "|cFFFF7D0ADruid:|r Always Use Flight Form",
 			desc = "Ignore favorites whenever |cFF69CCF0[Flight Form]|r is available.",
@@ -755,7 +808,11 @@ do
 		-- Sort & Validate Dynamic Preferences
 		wipe(tempOne)
 		for k in pairs(vmInfo) do
-			if k ~= "Enabled" and (not vmInfo[k].race or vmInfo[k].race == playerRace) and (not vmInfo[k].class or vmInfo[k].class == playerClass) then
+			if k ~= "Enabled"
+                and (not vmInfo[k].race or vmInfo[k].race == playerRace)
+                and (not vmInfo[k].class or vmInfo[k].class == playerClass)
+                and (not vmInfo[k].spell or IsPlayerSpell(vmInfo[k].spell))
+            then
 				tinsert(tempOne, k)
 			end
 		end
