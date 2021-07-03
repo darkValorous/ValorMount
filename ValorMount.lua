@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.8"
+local vmVersion = "2.9"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -30,6 +30,7 @@ local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBe
 	= _G.C_MountJournal.GetMountInfoExtraByID, _G.C_MountJournal.GetNumDisplayedMounts, _G.C_MountJournal.GetDisplayedMountInfo, _G.C_Map.GetBestMapForUnit
 local GetMapInfo, GetMountIDs, GetMountInfoByID
 	=  _G.C_Map.GetMapInfo, _G.C_MountJournal.GetMountIDs, _G.C_MountJournal.GetMountInfoByID
+local IsQuestFlaggedCompleted = _G.C_QuestLog.IsQuestFlaggedCompleted
 local playerRace, playerClass, playerFaction, playerLevel
 	= select(2, _G.UnitRace("player")), select(2, _G.UnitClass("player")), _G.UnitFactionGroup("player"), _G.UnitLevel("player")
 local vmPrefs = CreateFrame("Frame", nil, _G.UIParent)
@@ -356,9 +357,11 @@ local function vmVashjir()
 	return vmMain.zoneInfo.mapId == 204 or vmMain.zoneInfo.mapId == 201 or vmMain.zoneInfo.mapId == 205 or vmMain.zoneInfo.mapId == 203
 end
 
--- vmTheMaw() - Return true if in the Maw in Shadowlands.
-local function vmTheMaw()
-    return vmMain.zoneInfo.mapId == 1543
+-- vmTheMaw() - Return true if in the Maw/Korthia in Shadowlands
+-- and have not unlocked The True Maw Walker
+local function vmTheMawCannotMount()
+    return not IsQuestFlaggedCompleted(63994)
+        and (vmMain.zoneInfo.mapId == 1543 or vmMain.zoneInfo.mapId == 1961)
 end
 
 -- vmFloating() - Blizzard should either add IsFloating() or fix IsSubmerged()
@@ -494,7 +497,7 @@ do
 		end
 
 		-- Favorites
-        if not vmTheMaw() then
+        if not vmTheMawCannotMount() then
             for i = 1, #mountDb do
                 local mountId, _, mountType, spellId = unpack(mountDb[i])
                 local _, _, _, _, isUsable = GetMountInfoByID(mountId)
