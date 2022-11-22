@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "2.9"
+local vmVersion = "3.0"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -1050,6 +1050,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 		self:RegisterEvent("ZONE_CHANGED")
 		self:RegisterEvent("ZONE_CHANGED_INDOORS")
 		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        self:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
 		self:SetScript("PreClick", vmSetMacro)
 		vmBindings(self)
 		vmInitDb()

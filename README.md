@@ -32,4 +32,4 @@ ValorMount is intended to be a fairly simple mount manager based largely on my o
 
 Options can be set under Interface -> Addons -> ValorMount, or by typing /vm or /valormount \
 The Key Binding can be set under Key Bindings -> Addons -> ValorMount \
-If a macro is preferred, simply use this command: /click ValorMountButton
+If a macro is preferred, simply use this command: /click ValorMountButton LeftButton 1

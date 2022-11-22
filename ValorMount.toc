@@ -1,8 +1,8 @@
-## Interface: 90100
+## Interface: 100002
 ## Title: ValorMount
 ## Notes: A fairly simple mount manager.
 ## Author: darkValorous
-## Version: 2.9
+## Version: 3.0
 ## SavedVariables: ValorMountGlobal
 ## SavedVariablesPerCharacter: ValorMountLocal
 ValorMount.lua
