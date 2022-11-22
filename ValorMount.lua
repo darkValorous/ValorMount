@@ -361,7 +361,7 @@ end
 -- and have not unlocked The True Maw Walker
 local function vmTheMawCannotMount()
     return not IsQuestFlaggedCompleted(63994)
-        and (vmMain.zoneInfo.mapId == 1543 or vmMain.zoneInfo.mapId == 1961)
+        and (vmMain.zoneInfo.mapId == 1543 or vmMain.zoneInfo.mapId == 1961 or vmMain.zoneInfo.mapId == 1648)
 end
 
 -- vmFloating() - Blizzard should either add IsFloating() or fix IsSubmerged()
