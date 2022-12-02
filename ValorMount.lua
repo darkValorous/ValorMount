@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "3.0"
+local vmVersion = "3.1"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -417,7 +417,7 @@ end
 local vmGetMount
 do
 	local topPriority = 1
-	local HEIRLOOM, GROUND, AQUATIC, FLYING = 10, 20, 30, 40
+	local HEIRLOOM, GROUND, AQUATIC, FLYING, DRAGONRIDING = 10, 20, 30, 40, 50
 	local VASHJIR_SEAHORSE, HEIRLOOM_ALLIANCE, HEIRLOOM_HORDE
 		= 75207, 179245, 179244
 	local mountPriority = {
@@ -430,6 +430,7 @@ do
 		[231] = AQUATIC,	-- Aquatic Mounts (Slow on Land)
 		[254] = AQUATIC,	--	Underwater Mounts
 		[232] = 0,			--	Vashj'ir Seahorse
+        [402] = DRAGONRIDING,
 	}
 
 	-- In the pool
@@ -450,6 +451,7 @@ do
 		local mountDb = ValorMountLocal.mountDb
 		local isSubmerged = IsSubmerged()
 		local isFloating = isSubmerged
+        local canDragonride = vmMain.zoneInfo.instanceId == 2444
 
 		-- Vashj'ir Override - Always bet on the Seahorse
 		if vmVashjir() and IsPlayerSpell(VASHJIR_SEAHORSE) then
@@ -515,6 +517,8 @@ do
                     -- Flying Mount set to Ground Only
                     elseif canFly and myPriority == FLYING and ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 2 then
                         myPriority = GROUND
+                    elseif myPriority == DRAGONRIDING and not canDragonride then
+                        myPriority = 0
                     end
                     addToPool(myPriority, spellId)
                 end

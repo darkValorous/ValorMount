@@ -12,6 +12,7 @@ ValorMount is intended to be a fairly simple mount manager based largely on my o
 - Ability to override how the addon determines if the current area allows flying or not.
 - If you have it, the Vashj'ir Seahorse is always summoned when swimming in Vashj'ir.
 - Characters without riding skill yet will summon their faction's chauffeur should they have one.
+- Only Dragonriding favorites will be used while in the Dragon Isles.
 
 #### Race/Class Specific Features:
 - Monks have the option of Zen Flight if used while moving or falling.
