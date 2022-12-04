@@ -28,8 +28,8 @@ local IsPlayerSpell, IsSubmerged, UnitAffectingCombat, UnitInVehicle, SetOverrid
 	= _G.IsPlayerSpell, _G.IsSubmerged, _G.UnitAffectingCombat, _G.UnitInVehicle, _G.SetOverrideBindingClick, _G.ClearOverrideBindings, _G.GetTime
 local GetMountInfoExtraByID, GetNumDisplayedMounts, GetDisplayedMountInfo, GetBestMapForUnit
 	= _G.C_MountJournal.GetMountInfoExtraByID, _G.C_MountJournal.GetNumDisplayedMounts, _G.C_MountJournal.GetDisplayedMountInfo, _G.C_Map.GetBestMapForUnit
-local GetMapInfo, GetMountIDs, GetMountInfoByID
-	=  _G.C_Map.GetMapInfo, _G.C_MountJournal.GetMountIDs, _G.C_MountJournal.GetMountInfoByID
+local GetMapInfo, GetMountIDs, GetMountInfoByID, GetNumGroupMembers, IsFlying
+	=  _G.C_Map.GetMapInfo, _G.C_MountJournal.GetMountIDs, _G.C_MountJournal.GetMountInfoByID, _G.GetNumGroupMembers, _G.IsFlying
 local IsQuestFlaggedCompleted = _G.C_QuestLog.IsQuestFlaggedCompleted
 local playerRace, playerClass, playerFaction, playerLevel
 	= select(2, _G.UnitRace("player")), select(2, _G.UnitClass("player")), _G.UnitFactionGroup("player"), _G.UnitLevel("player")
@@ -471,11 +471,14 @@ do
 			-- No Riding Skill: Priority: (Travel > Heirloom) in Water, (Travel < Heirloom) on Land
 			if not canRide then
                 -- Always Travel Form in water
-                if isSubmerged and IsPlayerSpell(spellMap.AquaticForm.id) then addToPool(15, spellMap.TravelForm.id)
+                if isSubmerged and IsPlayerSpell(spellMap.AquaticForm.id) then
+                    addToPool(15, spellMap.TravelForm.id)
                 -- Mount Form
-                elseif ValorMountLocal.DruidFormMount then addToPool(5, spellMap.MountForm.id)
+                elseif ValorMountLocal.DruidFormMount and IsPlayerSpell(spellMap.MountForm.id) and GetNumGroupMembers() > 0 then
+                    addToPool(5, spellMap.MountForm.id)
                 -- Travel Form
-                else addToPool(5, spellMap.TravelForm.id)
+                else
+                    addToPool(5, spellMap.TravelForm.id)
                 end
 			-- DruidFormRandom: Treat Flight Form as a Favorite
 			elseif canFly and ValorMountLocal.DruidFormRandom then
@@ -547,7 +550,7 @@ do
 	local mountCond = "[outdoors,nomounted,novehicleui]"
 	local mountDismount = "/leavevehicle [canexitvehicle]\n/dismount [mounted]\n"
 
-	local function vmMakeMacro()
+	local function vmMakeMacro(event)
 
 		-- ValorMount is Disabled
 		if not ValorMountLocal.Enabled then
@@ -587,19 +590,26 @@ do
             -- Special Conditions for Travel Form
             if inTravelForm then
                 canMount = false
-                macroExit = "/cancelform [form]\n"
+
                 -- DruidMoonkinForm: Shift back into Moonkin from Travel Form
                 if wasMoonkin and ValorMountLocal.DruidMoonkin then
-                    macroPost = format("/cast [noform] %s\n", spellMap.MoonkinForm.name)
+                    if IsFlying() then
+                        macroExit = "/cancelform [form]\n"
+                        macroPost = format("/cast [noform] %s\n", spellMap.MoonkinForm.name)
+                    else
+                        macroPost = format("/cast %s\n", spellMap.MoonkinForm.name)
+                    end
+                else
+                    macroExit = "/cancelform [form]\n"
                 end
-            else
+            elseif event == "UNIT_MODEL_CHANGED" then
                 wasMoonkin = inMoonkinForm
             end
 
             -- Druid Travel Form
             if not inTravelForm and not isMounted and isOutdoors then
-                -- If Moving, Cannot Fly, DruidFormMount is enabled, Mount Form is learned, and not Submerged
-                if isMoving and not canFly and ValorMountLocal.DruidFormMount and IsPlayerSpell(spellMap.MountForm.id) and not IsSubmerged() then
+                -- If Moving, Cannot Fly, DruidFormMount is enabled, Mount Form is learned, not Submerged, and in a group
+                if isMoving and not canFly and ValorMountLocal.DruidFormMount and IsPlayerSpell(spellMap.MountForm.id) and not IsSubmerged() and GetNumGroupMembers() > 0 then
                     macroCond = "[outdoors,nomounted,novehicleui]"
                     spellId = spellMap.MountForm.id
                 -- If In Combat, Moving, Can Fly and Falling or Always Use Flight Form enabled
@@ -661,10 +671,10 @@ do
 		return macroPre .. macroText .. macroExit .. macroPost
 	end
 
-	function vmSetMacro(self)
+	function vmSetMacro(self, event)
 		if InCombatLockdown() then return end
 		vmInitDb()
-		local macroString = _G.strtrim(vmMakeMacro() or macroFail)
+		local macroString = _G.strtrim(vmMakeMacro(event) or macroFail)
 		self:SetAttribute("macrotext", macroString)
 	end
 end
@@ -1051,6 +1061,7 @@ vmMain:SetScript("OnEvent", function(self, event)
 		self:RegisterEvent("ZONE_CHANGED")
 		self:RegisterEvent("ZONE_CHANGED_INDOORS")
 		self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+        self:RegisterEvent("UNIT_MODEL_CHANGED")
         self:RegisterForClicks("LeftButtonDown", "LeftButtonUp")
 		self:SetScript("PreClick", vmSetMacro)
 		vmBindings(self)
