@@ -6,7 +6,7 @@
 --------------------------------------------------------------------------------------------------
 local _G = _G
 local addonName = ...
-local vmVersion = "3.1"
+local vmVersion = "3.2"
 if not _G.ValorAddons then _G.ValorAddons = {} end
 _G.ValorAddons[addonName] = true
 
@@ -20,8 +20,8 @@ local setNotCollected = false
 local setUnUsable = false
 local tinsert, tremove, sort, wipe, pairs, random, select, format, unpack
 	= _G.tinsert, _G.tremove, _G.sort, _G.wipe, _G.pairs, _G.random, _G.select, _G.format, _G.unpack
-local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText
-	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText
+local CreateFrame, GetInstanceInfo, GetNumShapeshiftForms, GetShapeshiftFormInfo, GetSpellInfo, GetSubZoneText, IsUsableSpell
+	= _G.CreateFrame, _G.GetInstanceInfo, _G.GetNumShapeshiftForms, _G.GetShapeshiftFormInfo, _G.GetSpellInfo, _G.GetSubZoneText, _G.IsUsableSpell
 local InCombatLockdown, IsFalling, IsFlyableArea, IsInInstance, IsOutdoors, IsPlayerMoving, IsMounted, UnitAura, GetBindingKey
 	= _G.InCombatLockdown, _G.IsFalling, _G.IsFlyableArea, _G.IsInInstance, _G.IsOutdoors, _G.IsPlayerMoving, _G.IsMounted, _G.UnitAura, _G.GetBindingKey
 local IsPlayerSpell, IsSubmerged, UnitAffectingCombat, UnitInVehicle, SetOverrideBindingClick, ClearOverrideBindings, GetTime
@@ -451,7 +451,6 @@ do
 		local mountDb = ValorMountLocal.mountDb
 		local isSubmerged = IsSubmerged()
 		local isFloating = isSubmerged
-        local canDragonride = vmMain.zoneInfo.instanceId == 2444
 
 		-- Vashj'ir Override - Always bet on the Seahorse
 		if vmVashjir() and IsPlayerSpell(VASHJIR_SEAHORSE) then
@@ -503,7 +502,7 @@ do
             for i = 1, #mountDb do
                 local mountId, _, mountType, spellId = unpack(mountDb[i])
                 local _, _, _, _, isUsable = GetMountInfoByID(mountId)
-                if isUsable then
+                if isUsable and IsUsableSpell(spellId) then
                     local myPriority = mountPriority[mountType] or 0
                     -- Aquatic Mount Priorities,
                     if myPriority == AQUATIC then
@@ -517,8 +516,6 @@ do
                     -- Flying Mount set to Ground Only
                     elseif canFly and myPriority == FLYING and ValorMountGlobal.groundFly[mountId] and ValorMountGlobal.groundFly[mountId] > 2 then
                         myPriority = GROUND
-                    elseif myPriority == DRAGONRIDING and not canDragonride then
-                        myPriority = 0
                     end
                     addToPool(myPriority, spellId)
                 end
@@ -720,7 +717,7 @@ do
 		},
         DruidFormMount = {
 			name = "|cFFFF7D0ADruid:|r Prefer Mount Form to Travel Form",
-			desc = "Whenever |cFF69CCF0[Travel Form]|r would be cast as a ground mount, use |cFF69CCF0[Mount Form]|r instead.",
+			desc = "While in a party/raid, whenever |cFF69CCF0[Travel Form]|r would be cast as a ground mount, use |cFF69CCF0[Mount Form]|r instead.",
 			class = "DRUID",
             spell = spellMap.MountForm.id,
         },
